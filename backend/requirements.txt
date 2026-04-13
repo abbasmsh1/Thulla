@@ -5,3 +5,4 @@ pydantic==2.5.3
 python-multipart==0.0.6
 cors==1.0.1
 starlette==0.35.1
+redis==5.2.1

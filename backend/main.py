@@ -2,10 +2,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, List
 import json
-import asyncio
 
 from game.models import Card, Suit, Rank, GamePhase
 from game.engine import GameEngine, GameError
+from storage import GameStore
 
 app = FastAPI(title="Card Game API")
 
@@ -20,7 +20,7 @@ app.add_middleware(
 
 # In-memory storage for games and connections
 games: Dict[str, GameEngine] = {}
-connections: Dict[str, List[WebSocket]] = {}
+store = GameStore()
 
 
 class ConnectionManager:
@@ -64,11 +64,30 @@ def normalize_game_id(game_id: str) -> str:
     return game_id.strip().lower()
 
 
+def load_engine_or_404(game_id: str) -> GameEngine:
+    game_id = normalize_game_id(game_id)
+
+    if game_id in games:
+        return games[game_id]
+
+    engine = store.load_engine(game_id)
+    if not engine:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    games[game_id] = engine
+    return engine
+
+
+def persist_engine(game_id: str, engine: GameEngine) -> None:
+    games[game_id] = engine
+    store.save_engine(game_id, engine)
+
+
 @app.post("/games")
 async def create_game():
     """Create a new game and return its ID."""
     engine = GameEngine()
-    games[engine.state.id] = engine
+    persist_engine(engine.state.id, engine)
     return {
         "game_id": engine.state.id,
         "status": "created",
@@ -80,16 +99,14 @@ async def create_game():
 async def join_game(game_id: str, name: str):
     """Join an existing game."""
     game_id = normalize_game_id(game_id)
-    if game_id not in games:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    engine = games[game_id]
+    engine = load_engine_or_404(game_id)
 
     if engine.state.phase != GamePhase.WAITING:
         raise HTTPException(status_code=400, detail="Game has already started")
 
     try:
         player = engine.add_player(name)
+        persist_engine(game_id, engine)
         return {
             "player_id": player.id,
             "player_name": player.name,
@@ -104,13 +121,11 @@ async def join_game(game_id: str, name: str):
 async def start_game(game_id: str):
     """Start the game."""
     game_id = normalize_game_id(game_id)
-    if game_id not in games:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    engine = games[game_id]
+    engine = load_engine_or_404(game_id)
 
     try:
         engine.start_game()
+        persist_engine(game_id, engine)
 
         # Notify all connected clients
         await manager.broadcast(game_id, {
@@ -137,10 +152,7 @@ async def start_game(game_id: str):
 async def get_game_state(game_id: str, player_id: str = None):
     """Get current game state."""
     game_id = normalize_game_id(game_id)
-    if game_id not in games:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    engine = games[game_id]
+    engine = load_engine_or_404(game_id)
 
     if player_id:
         return engine.get_game_state_for_player(player_id)
@@ -152,10 +164,7 @@ async def get_game_state(game_id: str, player_id: str = None):
 async def play_card(game_id: str, player_id: str, suit: str, rank: str):
     """Play a card."""
     game_id = normalize_game_id(game_id)
-    if game_id not in games:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    engine = games[game_id]
+    engine = load_engine_or_404(game_id)
 
     # Parse card
     try:
@@ -171,6 +180,8 @@ async def play_card(game_id: str, player_id: str, suit: str, rank: str):
 
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
+
+    persist_engine(game_id, engine)
 
     # Broadcast updated state
     await broadcast_game_state(game_id)
@@ -205,10 +216,12 @@ async def play_card(game_id: str, player_id: str, suit: str, rank: str):
 
 async def broadcast_game_state(game_id: str):
     """Broadcast current game state to all connected clients."""
-    if game_id not in games:
-        return
-
-    engine = games[game_id]
+    engine = games.get(game_id)
+    if not engine:
+        engine = store.load_engine(game_id)
+        if not engine:
+            return
+        games[game_id] = engine
     base_state = engine.state.to_dict()
 
     # Send personalized state to each connection
@@ -234,7 +247,9 @@ async def broadcast_game_state(game_id: str):
 async def websocket_endpoint(websocket: WebSocket, game_id: str):
     """WebSocket endpoint for real-time game updates."""
     game_id = normalize_game_id(game_id)
-    if game_id not in games:
+    try:
+        engine = load_engine_or_404(game_id)
+    except HTTPException:
         await websocket.close(code=4000, reason="Game not found")
         return
 
@@ -274,10 +289,11 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                 try:
                     card = Card(suit=Suit(suit.lower()), rank=Rank(rank.upper()))
                     print(f"DEBUG: WS Playing {suit} {rank} for {player_id}")
-                    result = games[game_id].play_card(player_id, card)
+                    result = engine.play_card(player_id, card)
                     print(f"DEBUG: WS Result for {player_id}: {result}")
 
                     if result["success"]:
+                        persist_engine(game_id, engine)
                         await broadcast_game_state(game_id)
 
                         if result.get("pile_complete"):
@@ -297,8 +313,8 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                             await manager.broadcast(game_id, {
                                 "type": "game_over",
                                 "data": {
-                                    "winner_id": games[game_id].state.winner_id,
-                                    "message": f"Player {games[game_id].state.winner_id} has won!"
+                                    "winner_id": engine.state.winner_id,
+                                    "message": f"Player {engine.state.winner_id} has won!"
                                 }
                             })
                     else:
@@ -317,9 +333,9 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                 # Send current state
                 player_id = getattr(websocket, 'player_id', None)
                 if player_id:
-                    state = games[game_id].get_game_state_for_player(player_id)
+                    state = engine.get_game_state_for_player(player_id)
                 else:
-                    state = games[game_id].state.to_dict()
+                    state = engine.state.to_dict()
 
                 await websocket.send_json({
                     "type": "game_state",
@@ -335,7 +351,7 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "games_active": len(games)}
+    return {"status": "healthy", "games_active": len(games), "store": "redis" if store._client else "memory"}
 
 
 if __name__ == "__main__":

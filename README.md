@@ -160,7 +160,8 @@ For production deploys on Vercel, the frontend automatically falls back to HTTP 
 1. Push this repository to GitHub.
 2. In Vercel, import the repo as a new project.
 3. Keep the default root (repository root), because `vercel.json` handles both builds.
-4. Deploy.
+4. Add environment variable `REDIS_URL` (Upstash/Redis connection URL) in Vercel project settings.
+5. Deploy.
 
 ### Environment variables (optional)
 
