@@ -25,7 +25,18 @@ const App: React.FC = () => {
     if (lastMessage) {
       switch (lastMessage.type) {
         case 'game_state':
-          setGameState(lastMessage.data as GameStateWithHand);
+          {
+            const nextState = lastMessage.data as GameStateWithHand;
+            setGameState(nextState);
+
+            // In polling/fallback mode we may not receive explicit lifecycle WS events.
+            // Keep view in sync with authoritative server phase.
+            if (nextState.phase === 'playing' && view !== 'game') {
+              setView('game');
+            } else if (nextState.phase === 'finished' && view !== 'game') {
+              setView('game');
+            }
+          }
           break;
         case 'game_started':
           setView('game');
@@ -46,7 +57,7 @@ const App: React.FC = () => {
           break;
       }
     }
-  }, [lastMessage, getState]);
+  }, [lastMessage, getState, view]);
 
   // Create game
   const handleCreateGame = async () => {
