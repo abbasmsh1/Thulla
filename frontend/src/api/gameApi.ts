@@ -1,6 +1,6 @@
 import { Card } from '../types/game';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/_/backend';
 
 export const gameApi = {
   createGame: async (): Promise<{ game_id: string; status: string }> => {
