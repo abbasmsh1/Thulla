@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude plugin:*)",
+      "Bash(claude skill:*)",
+      "Bash(npm install:*)",
+      "Skill(update-config)",
+      "Bash(.venv/Scripts/python -m uvicorn main:app --reload --port 8000)",
+      "Bash(npm run:*)",
+      "Bash(python:*)",
+      "Bash(.venv\\\\Scripts\\\\pip install:*)",
+      "Bash(E:/Projects/Thulla/backend/venv/Scripts/python.exe:*)",
+      "Bash(E:/Projects/Thulla/backend/.venv/Scripts/python.exe:*)"
+    ]
+  }
+}
