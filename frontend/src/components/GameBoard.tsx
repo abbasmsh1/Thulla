@@ -432,7 +432,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             borderBottom: '1px solid rgba(212, 175, 55, 0.2)',
             zIndex: 10
           }}>
-            {opponents.map((opponent, index) => (
+            {opponents.map((opponent) => (
               <div key={opponent.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                 <PlayerAvatar
                   name={opponent.name}
@@ -514,6 +514,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   }}>
                     {opponent.card_count} cards
                   </div>
+                </div>
                 </div>
               </div>
             ))}
@@ -785,11 +786,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           playerPositions={playerPositions}
         />
       </div>
-    </>
-  );
-
-  return (
-    <style>{`
+      <style>{`
       @keyframes pilePassedFade {
         0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.8) translateY(20px); }
         15%  { opacity: 1; transform: translate(-50%, -50%) scale(1.05) translateY(0); }
@@ -828,6 +825,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         to { transform: translateY(-100vh); }
       }
     `}</style>
+    </>
   );
 };
 
