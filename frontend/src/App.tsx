@@ -18,7 +18,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<'home' | 'create' | 'join' | 'lobby' | 'game'>('home');
 
   // WebSocket connection
-  const { isConnected, lastMessage, playCard, getState } = useGameSocket(gameId, playerId);
+  const { isConnected, lastMessage, playCard, getState, reconnect } = useGameSocket(gameId, playerId);
 
   // Handle WebSocket messages
   useEffect(() => {
@@ -638,6 +638,8 @@ const App: React.FC = () => {
       <GameBoard
         gameState={gameState}
         onPlayCard={handlePlayCard}
+        isConnected={isConnected}
+        onReconnect={reconnect}
       />
     );
   }

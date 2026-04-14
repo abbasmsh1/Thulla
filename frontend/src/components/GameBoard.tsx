@@ -18,13 +18,17 @@ interface GameBoardProps {
   onPlayCard: (card: CardType) => void;
   onSendReaction?: (emoji: string) => void;
   reactions?: EmojiReaction[];
+  isConnected?: boolean;
+  onReconnect?: () => void;
 }
 
 export const GameBoard: React.FC<GameBoardProps> = ({
   gameState,
   onPlayCard,
   onSendReaction,
-  reactions = []
+  reactions = [],
+  isConnected = true,
+  onReconnect
 }) => {
   const { players, current_player_id, pile, lead_suit, phase, winner_id, passed_pile_count } = gameState;
   const myId = gameState.your_id;
@@ -37,6 +41,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   const [prevPileLength, setPrevPileLength] = useState(0);
   const [gameStarted, setGameStarted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile devices
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768 || window.innerHeight <= 600);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Play sounds when pile changes
   useEffect(() => {
@@ -227,10 +242,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       <div style={{
         position: 'relative',
         width: '100%',
-        height: '100vh',
+        minHeight: isMobile ? '100vh' : '100vh',
+        maxHeight: isMobile ? '100vh' : 'none',
         background: 'transparent',
-        overflow: 'hidden',
-        fontFamily: '"Montserrat", -apple-system, BlinkMacSystemFont, sans-serif'
+        overflow: isMobile ? 'auto' : 'hidden',
+        fontFamily: '"Montserrat", -apple-system, BlinkMacSystemFont, sans-serif',
+        display: 'flex',
+        flexDirection: 'column'
       }}>
         {/* Subtle felt texture overlay with pattern */}
         <div style={{
@@ -253,8 +271,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         {/* Decorative border */}
         <div style={{
           position: 'absolute',
-          inset: '15px',
-          borderRadius: '20px',
+          inset: isMobile ? '8px' : '15px',
+          borderRadius: isMobile ? '12px' : '20px',
           border: '1px solid rgba(212, 175, 55, 0.1)',
           pointerEvents: 'none',
           zIndex: 2
@@ -269,6 +287,54 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           textAlign: 'center',
           zIndex: 10
         }}>
+          {/* Connection Status */}
+          <div style={{
+            position: 'absolute',
+            top: '-35px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            backgroundColor: isConnected ? 'rgba(39, 174, 96, 0.9)' : 'rgba(196, 30, 58, 0.9)',
+            color: 'white',
+            padding: '6px 12px',
+            borderRadius: '20px',
+            fontSize: '12px',
+            fontFamily: 'Montserrat, sans-serif',
+            fontWeight: 500,
+            backdropFilter: 'blur(10px)',
+            border: `1px solid ${isConnected ? 'rgba(39, 174, 96, 0.3)' : 'rgba(196, 30, 58, 0.3)'}`,
+            boxShadow: `0 2px 10px ${isConnected ? 'rgba(39, 174, 96, 0.3)' : 'rgba(196, 30, 58, 0.3)'}`
+          }}>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              backgroundColor: isConnected ? '#2ecc71' : '#e74c3c',
+              animation: isConnected ? 'pulse 2s infinite' : 'none'
+            }} />
+            {isConnected ? 'Connected' : 'Disconnected'}
+            {!isConnected && onReconnect && (
+              <button
+                onClick={onReconnect}
+                style={{
+                  marginLeft: '8px',
+                  backgroundColor: 'rgba(255,255,255,0.2)',
+                  border: 'none',
+                  color: 'white',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  fontSize: '10px',
+                  cursor: 'pointer',
+                  fontFamily: 'Montserrat, sans-serif'
+                }}
+              >
+                Reconnect
+              </button>
+            )}
+          </div>
+
           <div className="glass-panel" style={{
             padding: '16px 40px',
             minWidth: '280px',
@@ -353,37 +419,77 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         </div>
 
         {/* ── Opponents ── */}
-        {opponents.map((opponent, index) => (
-          <div
-            key={opponent.id}
-            style={{
-              position: 'absolute',
-              ...(getOpponentPosition(index) === 'left' && {
-                left: '40px',
-                top: '50%',
-                transform: 'translateY(-50%)'
-              }),
-              ...(getOpponentPosition(index) === 'right' && {
-                right: '40px',
-                top: '50%',
-                transform: 'translateY(-50%)'
-              }),
-              ...(getOpponentPosition(index) === 'top' && {
-                top: '100px',
-                left: '50%',
-                transform: 'translateX(-50%)'
-              })
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-              <PlayerAvatar
-                name={opponent.name}
-                isCurrentPlayer={opponent.id === current_player_id}
-                size={64}
-              />
-              <div style={{ textAlign: 'center' }}>
-                <div style={{
-                  color: '#fef9e7',
+        {isMobile ? (
+          // Mobile layout: horizontal opponents bar at top
+          <div style={{
+            position: 'relative',
+            width: '100%',
+            padding: '10px',
+            display: 'flex',
+            justifyContent: 'space-around',
+            alignItems: 'center',
+            background: 'rgba(0,0,0,0.3)',
+            borderBottom: '1px solid rgba(212, 175, 55, 0.2)',
+            zIndex: 10
+          }}>
+            {opponents.map((opponent, index) => (
+              <div key={opponent.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                <PlayerAvatar
+                  name={opponent.name}
+                  isCurrentPlayer={opponent.id === current_player_id}
+                  size={48}
+                />
+                <div style={{ textAlign: 'center', fontSize: '12px' }}>
+                  <div style={{
+                    color: '#fef9e7',
+                    fontWeight: 600,
+                    fontSize: '11px'
+                  }}>
+                    {opponent.name}
+                  </div>
+                  <div style={{
+                    color: opponent.id === current_player_id ? '#d4af37' : 'rgba(254, 249, 231, 0.6)',
+                    fontSize: '10px'
+                  }}>
+                    {opponent.card_count} cards
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          // Desktop layout: positioned opponents
+          opponents.map((opponent, index) => (
+            <div
+              key={opponent.id}
+              style={{
+                position: 'absolute',
+                ...(getOpponentPosition(index) === 'left' && {
+                  left: '40px',
+                  top: '50%',
+                  transform: 'translateY(-50%)'
+                }),
+                ...(getOpponentPosition(index) === 'right' && {
+                  right: '40px',
+                  top: '50%',
+                  transform: 'translateY(-50%)'
+                }),
+                ...(getOpponentPosition(index) === 'top' && {
+                  top: '100px',
+                  left: '50%',
+                  transform: 'translateX(-50%)'
+                })
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <PlayerAvatar
+                  name={opponent.name}
+                  isCurrentPlayer={opponent.id === current_player_id}
+                  size={64}
+                />
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{
+                    color: '#fef9e7',
                   fontSize: '15px',
                   fontWeight: 600,
                   fontFamily: 'Cormorant Garamond, serif',
@@ -498,11 +604,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         {/* Center Pile Area */}
         <div style={{
           position: 'absolute',
-          top: '50%',
+          top: isMobile ? '45%' : '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          width: '320px',
-          height: '320px',
+          width: isMobile ? '280px' : '320px',
+          height: isMobile ? '280px' : '320px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -511,8 +617,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         }}>
           {/* Decorative plate */}
           <div style={{
-            width: '240px',
-            height: '240px',
+            width: isMobile ? '200px' : '240px',
+            height: isMobile ? '200px' : '240px',
             borderRadius: '50%',
             background: `
               radial-gradient(circle, rgba(212, 175, 55, 0.1) 0%, transparent 60%),
@@ -535,8 +641,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           }}>
             {/* Inner decorative ring */}
             <div style={{
-              width: '180px',
-              height: '180px',
+              width: isMobile ? '150px' : '180px',
+              height: isMobile ? '150px' : '180px',
               borderRadius: '50%',
               border: '2px dashed rgba(212, 175, 55, 0.15)',
               position: 'absolute',
@@ -564,8 +670,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         card={playedCard.card}
                         isPlayable={false}
                         style={{
-                          width: '75px',
-                          height: '110px',
+                          width: isMobile ? '65px' : '75px',
+                          height: isMobile ? '95px' : '110px',
                           boxShadow: isTopCard
                             ? '0 8px 25px rgba(0,0,0,0.5), 0 0 0 2px rgba(212, 175, 55, 0.4)'
                             : '0 4px 12px rgba(0,0,0,0.3)'
@@ -607,46 +713,48 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         {/* Player's Area (bottom) */}
         <div style={{
           position: 'absolute',
-          bottom: '25px',
+          bottom: isMobile ? '15px' : '25px',
           left: '50%',
           transform: 'translateX(-50%)',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          zIndex: 20
+          zIndex: 20,
+          width: isMobile ? '95%' : 'auto',
+          maxWidth: isMobile ? '400px' : 'none'
         }}>
           {me && (
             <>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '16px',
-                marginBottom: '12px'
+                gap: isMobile ? '12px' : '16px',
+                marginBottom: isMobile ? '8px' : '12px'
               }}>
                 <PlayerAvatar
                   name={me.name}
                   isCurrentPlayer={myId === current_player_id}
-                  size={72}
+                  size={isMobile ? 56 : 72}
                 />
                 <div style={{ textAlign: 'left' }}>
                   <div style={{
                     color: '#fef9e7',
-                    fontSize: '20px',
+                    fontSize: isMobile ? '16px' : '20px',
                     fontWeight: 700,
                     fontFamily: 'Cormorant Garamond, serif',
                     textShadow: '0 2px 6px rgba(0,0,0,0.8)'
                   }}>
                     {me.name}
                     {myId === current_player_id && (
-                      <span style={{ marginLeft: '10px', color: '#d4af37' }}>🎯</span>
+                      <span style={{ marginLeft: isMobile ? '6px' : '10px', color: '#d4af37' }}>🎯</span>
                     )}
                   </div>
                   <div style={{
                     backgroundColor: 'rgba(212, 175, 55, 0.2)',
-                    padding: '5px 16px',
+                    padding: isMobile ? '4px 12px' : '5px 16px',
                     borderRadius: '15px',
-                    marginTop: '6px',
-                    fontSize: '13px',
+                    marginTop: '4px',
+                    fontSize: isMobile ? '11px' : '13px',
                     color: '#d4af37',
                     border: '1px solid rgba(212, 175, 55, 0.4)',
                     fontFamily: 'Montserrat, sans-serif',

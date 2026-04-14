@@ -4,6 +4,8 @@ from typing import Dict, List
 import json
 import logging
 import traceback
+import time
+import asyncio
 
 from game.models import Card, Suit, Rank, GamePhase
 from game.engine import GameEngine, GameError
@@ -31,19 +33,26 @@ store = GameStore()
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, List[WebSocket]] = {}
+        self.connection_timestamps: Dict[str, Dict[WebSocket, float]] = {}
 
     async def connect(self, game_id: str, websocket: WebSocket):
         await websocket.accept()
         if game_id not in self.active_connections:
             self.active_connections[game_id] = []
+            self.connection_timestamps[game_id] = {}
         self.active_connections[game_id].append(websocket)
+        self.connection_timestamps[game_id][websocket] = time.time()
 
     def disconnect(self, game_id: str, websocket: WebSocket):
         if game_id in self.active_connections:
             if websocket in self.active_connections[game_id]:
                 self.active_connections[game_id].remove(websocket)
+                if websocket in self.connection_timestamps.get(game_id, {}):
+                    del self.connection_timestamps[game_id][websocket]
             if not self.active_connections[game_id]:
                 del self.active_connections[game_id]
+                if game_id in self.connection_timestamps:
+                    del self.connection_timestamps[game_id]
 
     async def broadcast(self, game_id: str, message: dict):
         if game_id not in self.active_connections:
@@ -58,10 +67,55 @@ class ConnectionManager:
 
         # Clean up disconnected sockets
         for conn in disconnected:
-            self.active_connections[game_id].remove(conn)
+            self.disconnect(game_id, conn)
+
+    async def heartbeat(self, game_id: str, websocket: WebSocket):
+        """Update heartbeat timestamp for a connection."""
+        if game_id in self.connection_timestamps and websocket in self.connection_timestamps[game_id]:
+            self.connection_timestamps[game_id][websocket] = time.time()
+
+    def get_active_connections_count(self, game_id: str) -> int:
+        """Get number of active connections for a game."""
+        return len(self.active_connections.get(game_id, []))
+
+    async def cleanup_stale_connections(self, game_id: str, max_age_seconds: int = 60):
+        """Remove connections that haven't sent a heartbeat recently."""
+        if game_id not in self.connection_timestamps:
+            return
+
+        current_time = time.time()
+        stale_connections = []
+
+        for websocket, last_heartbeat in self.connection_timestamps[game_id].items():
+            if current_time - last_heartbeat > max_age_seconds:
+                stale_connections.append(websocket)
+
+        for websocket in stale_connections:
+            logger.info(f"Cleaning up stale connection for game {game_id}")
+            self.disconnect(game_id, websocket)
 
 
 manager = ConnectionManager()
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background tasks on startup."""
+    asyncio.create_task(connection_cleanup_task())
+
+
+async def connection_cleanup_task():
+    """Periodically clean up stale connections."""
+    while True:
+        try:
+            # Clean up stale connections for all games
+            for game_id in list(manager.active_connections.keys()):
+                await manager.cleanup_stale_connections(game_id, max_age_seconds=60)
+        except Exception as e:
+            logger.error(f"Error in connection cleanup task: {e}")
+
+        # Run cleanup every 30 seconds
+        await asyncio.sleep(30)
 
 
 def normalize_game_id(game_id: str) -> str:
@@ -273,101 +327,130 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
 
     try:
         while True:
-            # Receive messages from client
-            data = await websocket.receive_text()
-            message = json.loads(data)
+            # Set a timeout for receiving messages to allow heartbeat checks
+            try:
+                data = await websocket.receive_text()
+                message = json.loads(data)
+                action = message.get("action")
 
-            action = message.get("action")
+                # Update heartbeat on any message
+                await manager.heartbeat(game_id, websocket)
 
-            if action == "join":
-                # Store player_id on websocket for personalized updates
-                player_id = message.get("player_id")
-                if player_id:
-                    websocket.player_id = player_id
-                    await websocket.send_json({
-                        "type": "joined",
-                        "data": {"player_id": player_id, "game_id": game_id}
-                    })
-
-            elif action == "play":
-                # Handle play via WebSocket
-                player_id = message.get("player_id")
-                suit = message.get("suit")
-                rank = message.get("rank")
-
-                if not all([player_id, suit, rank]):
-                    await websocket.send_json({
-                        "type": "error",
-                        "data": {"message": "Missing required fields"}
-                    })
-                    continue
-
-                try:
-                    card = Card(suit=Suit(suit.lower()), rank=Rank(rank.upper()))
-                    print(f"DEBUG: WS Playing {suit} {rank} for {player_id}")
-                    result = engine.play_card(player_id, card)
-                    print(f"DEBUG: WS Result for {player_id}: {result}")
-
-                    if result["success"]:
-                        persist_engine(game_id, engine)
+                if action == "join":
+                    # Store player_id on websocket for personalized updates
+                    player_id = message.get("player_id")
+                    if player_id:
+                        websocket.player_id = player_id
+                        await websocket.send_json({
+                            "type": "joined",
+                            "data": {"player_id": player_id, "game_id": game_id}
+                        })
+                        # Send initial state after joining
                         await broadcast_game_state(game_id)
 
-                        if result.get("pile_complete"):
-                            pile_passed = result.get("pile_passed", False)
-                            winner_id = result.get("winner_id")
-                            message = "Pile passed! Everyone followed suit." if pile_passed else f"Player {winner_id} picks up the pile!"
-                            await manager.broadcast(game_id, {
-                                "type": "pile_complete",
-                                "data": {
-                                    "winner_id": winner_id,
-                                    "pile_passed": pile_passed,
-                                    "message": message
-                                }
-                            })
+                elif action == "play":
+                    # Handle play via WebSocket
+                    player_id = message.get("player_id")
+                    suit = message.get("suit")
+                    rank = message.get("rank")
 
-                        if result.get("game_over"):
-                            await manager.broadcast(game_id, {
-                                "type": "game_over",
-                                "data": {
-                                    "winner_id": engine.state.winner_id,
-                                    "message": f"Player {engine.state.winner_id} has won!"
-                                }
-                            })
-                    else:
+                    if not all([player_id, suit, rank]):
                         await websocket.send_json({
                             "type": "error",
-                            "data": {"message": result["message"]}
+                            "data": {"message": "Missing required fields"}
+                        })
+                        continue
+
+                    try:
+                        card = Card(suit=Suit(suit.lower()), rank=Rank(rank.upper()))
+                        print(f"DEBUG: WS Playing {suit} {rank} for {player_id}")
+                        result = engine.play_card(player_id, card)
+                        print(f"DEBUG: WS Result for {player_id}: {result}")
+
+                        if result["success"]:
+                            persist_engine(game_id, engine)
+                            await broadcast_game_state(game_id)
+
+                            if result.get("pile_complete"):
+                                pile_passed = result.get("pile_passed", False)
+                                winner_id = result.get("winner_id")
+                                message = "Pile passed! Everyone followed suit." if pile_passed else f"Player {winner_id} picks up the pile!"
+                                await manager.broadcast(game_id, {
+                                    "type": "pile_complete",
+                                    "data": {
+                                        "winner_id": winner_id,
+                                        "pile_passed": pile_passed,
+                                        "message": message
+                                    }
+                                })
+
+                            if result.get("game_over"):
+                                await manager.broadcast(game_id, {
+                                    "type": "game_over",
+                                    "data": {
+                                        "winner_id": engine.state.winner_id,
+                                        "message": f"Player {engine.state.winner_id} has won!"
+                                    }
+                                })
+                        else:
+                            await websocket.send_json({
+                                "type": "error",
+                                "data": {"message": result["message"]}
+                            })
+
+                    except Exception as e:
+                        await websocket.send_json({
+                            "type": "error",
+                            "data": {"message": str(e)}
                         })
 
-                except Exception as e:
+                elif action == "get_state":
+                    # Send current state
+                    player_id = getattr(websocket, 'player_id', None)
+                    if player_id:
+                        state = engine.get_game_state_for_player(player_id)
+                    else:
+                        state = engine.state.to_dict()
+
                     await websocket.send_json({
-                        "type": "error",
-                        "data": {"message": str(e)}
+                        "type": "game_state",
+                        "data": state
                     })
 
-            elif action == "get_state":
-                # Send current state
-                player_id = getattr(websocket, 'player_id', None)
-                if player_id:
-                    state = engine.get_game_state_for_player(player_id)
-                else:
-                    state = engine.state.to_dict()
+                elif action == "heartbeat":
+                    # Client heartbeat - just update timestamp
+                    await websocket.send_json({
+                        "type": "heartbeat_ack",
+                        "data": {"timestamp": time.time()}
+                    })
 
-                await websocket.send_json({
-                    "type": "game_state",
-                    "data": state
-                })
+            except Exception as e:
+                # If we can't receive/parse message, connection might be broken
+                logger.warning(f"Error receiving message from websocket in game {game_id}: {e}")
+                break
 
     except WebSocketDisconnect:
-        manager.disconnect(game_id, websocket)
-    except Exception:
+        logger.info(f"WebSocket disconnected for game {game_id}")
+    except Exception as e:
+        logger.error(f"Unexpected error in websocket handler for game {game_id}: {e}")
+    finally:
         manager.disconnect(game_id, websocket)
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "games_active": len(games), "store": "redis" if store._client else "memory"}
+    connection_counts = {}
+    for game_id in manager.active_connections:
+        connection_counts[game_id] = manager.get_active_connections_count(game_id)
+
+    return {
+        "status": "healthy",
+        "games_active": len(games),
+        "store": "redis" if store._client else "memory",
+        "connections": connection_counts,
+        "total_connections": sum(connection_counts.values())
+    }
 
 
 if __name__ == "__main__":
