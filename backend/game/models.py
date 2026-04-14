@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from enum import Enum
 import uuid
+import secrets
 
 
 class Suit(str, Enum):
@@ -77,6 +78,7 @@ class Player(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     name: str
     hand: List[Card] = Field(default_factory=list)
+    session_token: str = Field(default_factory=lambda: secrets.token_urlsafe(24))
 
     class Config:
         arbitrary_types_allowed = True

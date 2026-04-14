@@ -1,6 +1,8 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+import os
+import re
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, List
+from typing import Dict, List, Optional
 import json
 import logging
 import traceback
@@ -16,13 +18,18 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Card Game API")
 
+DEFAULT_ALLOWED_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://.*\.vercel\.app$"
+ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()]
+ALLOWED_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", DEFAULT_ALLOWED_ORIGIN_REGEX)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS or [],
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Player-Token"],
 )
 
 # In-memory storage for games and connections
@@ -98,6 +105,15 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+@app.middleware("http")
+async def add_no_store_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks on startup."""
@@ -142,6 +158,22 @@ def persist_engine(game_id: str, engine: GameEngine) -> None:
     store.save_engine(game_id, engine)
 
 
+def is_allowed_origin(origin: Optional[str]) -> bool:
+    if not origin:
+        return True
+    if ALLOWED_ORIGINS and origin in ALLOWED_ORIGINS:
+        return True
+    return re.match(ALLOWED_ORIGIN_REGEX, origin) is not None
+
+
+def authenticate_player(engine: GameEngine, player_id: str, session_token: Optional[str]) -> None:
+    player = engine.state.get_player(player_id)
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    if not session_token or session_token != player.session_token:
+        raise HTTPException(status_code=401, detail="Invalid player session")
+
+
 @app.post("/games")
 async def create_game():
     """Create a new game and return its ID."""
@@ -174,6 +206,7 @@ async def join_game(game_id: str, name: str):
         return {
             "player_id": player.id,
             "player_name": player.name,
+            "session_token": player.session_token,
             "game_id": game_id,
             "message": f"Joined game {game_id}"
         }
@@ -185,10 +218,11 @@ async def join_game(game_id: str, name: str):
 
 
 @app.post("/games/{game_id}/start")
-async def start_game(game_id: str):
+async def start_game(game_id: str, player_id: str, x_player_token: Optional[str] = Header(default=None)):
     """Start the game."""
     game_id = normalize_game_id(game_id)
     engine = load_engine_or_404(game_id)
+    authenticate_player(engine, player_id, x_player_token)
 
     try:
         engine.start_game()
@@ -219,22 +253,34 @@ async def start_game(game_id: str):
 
 
 @app.get("/games/{game_id}/state")
-async def get_game_state(game_id: str, player_id: str = None):
+async def get_game_state(
+    game_id: str,
+    player_id: str = None,
+    x_player_token: Optional[str] = Header(default=None)
+):
     """Get current game state."""
     game_id = normalize_game_id(game_id)
     engine = load_engine_or_404(game_id)
 
     if player_id:
+        authenticate_player(engine, player_id, x_player_token)
         return engine.get_game_state_for_player(player_id)
 
     return engine.state.to_dict()
 
 
 @app.post("/games/{game_id}/play")
-async def play_card(game_id: str, player_id: str, suit: str, rank: str):
+async def play_card(
+    game_id: str,
+    player_id: str,
+    suit: str,
+    rank: str,
+    x_player_token: Optional[str] = Header(default=None)
+):
     """Play a card."""
     game_id = normalize_game_id(game_id)
     engine = load_engine_or_404(game_id)
+    authenticate_player(engine, player_id, x_player_token)
 
     # Parse card
     try:
@@ -317,6 +363,9 @@ async def broadcast_game_state(game_id: str):
 async def websocket_endpoint(websocket: WebSocket, game_id: str):
     """WebSocket endpoint for real-time game updates."""
     game_id = normalize_game_id(game_id)
+    if not is_allowed_origin(websocket.headers.get("origin")):
+        await websocket.close(code=4403, reason="Origin not allowed")
+        return
     try:
         engine = load_engine_or_404(game_id)
     except HTTPException:
@@ -339,7 +388,15 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                 if action == "join":
                     # Store player_id on websocket for personalized updates
                     player_id = message.get("player_id")
+                    session_token = message.get("session_token")
                     if player_id:
+                        player = engine.state.get_player(player_id)
+                        if not player or player.session_token != session_token:
+                            await websocket.send_json({
+                                "type": "error",
+                                "data": {"message": "Invalid player session"}
+                            })
+                            continue
                         websocket.player_id = player_id
                         await websocket.send_json({
                             "type": "joined",
@@ -353,6 +410,7 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                     player_id = message.get("player_id")
                     suit = message.get("suit")
                     rank = message.get("rank")
+                    session_token = message.get("session_token")
 
                     if not all([player_id, suit, rank]):
                         await websocket.send_json({
@@ -362,6 +420,13 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                         continue
 
                     try:
+                        player = engine.state.get_player(player_id)
+                        if not player or player.session_token != session_token:
+                            await websocket.send_json({
+                                "type": "error",
+                                "data": {"message": "Invalid player session"}
+                            })
+                            continue
                         card = Card(suit=Suit(suit.lower()), rank=Rank(rank.upper()))
                         print(f"DEBUG: WS Playing {suit} {rank} for {player_id}")
                         result = engine.play_card(player_id, card)

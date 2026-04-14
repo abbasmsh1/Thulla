@@ -38,7 +38,7 @@ export interface GameStateWithHand extends GameState {
 }
 
 export interface WebSocketMessage {
-  type: 'game_state' | 'game_started' | 'pile_complete' | 'game_over' | 'error' | 'joined' | 'reaction';
+  type: 'game_state' | 'game_started' | 'pile_complete' | 'game_over' | 'error' | 'joined' | 'reaction' | 'heartbeat_ack';
   data: any;
 }
 

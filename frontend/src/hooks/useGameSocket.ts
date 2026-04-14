@@ -5,15 +5,16 @@ import { Card } from '../types/game';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}/_/backend`;
 const WS_BASE = API_BASE_URL.replace(/^http/, 'ws').replace(/^https/, 'wss');
-const POLL_INTERVAL_MS = 1200;
+const CONNECTED_RESYNC_INTERVAL_MS = 2500;
+const DISCONNECTED_POLL_INTERVAL_MS = 800;
 const WS_ENABLED = import.meta.env.VITE_ENABLE_WS
-  ? import.meta.env.VITE_ENABLE_WS === 'true'
-  : import.meta.env.DEV;
+  ? import.meta.env.VITE_ENABLE_WS !== 'false'
+  : true;
 const HEARTBEAT_INTERVAL_MS = 30000; // Send heartbeat every 30 seconds
-const RECONNECT_DELAY_MS = 2000; // Wait 2 seconds before reconnecting
+const RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-export function useGameSocket(gameId: string | null, playerId: string | null) {
+export function useGameSocket(gameId: string | null, playerId: string | null, sessionToken: string | null) {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,19 +25,21 @@ export function useGameSocket(gameId: string | null, playerId: string | null) {
   const isRequestingStateRef = useRef(false);
 
   const fetchState = useCallback(async () => {
-    if (!gameId || !playerId) return;
+    if (!gameId || !playerId || !sessionToken) return;
     if (isRequestingStateRef.current) return;
     isRequestingStateRef.current = true;
     try {
-      const state = await gameApi.getGameState(gameId, playerId);
+      const state = await gameApi.getGameState(gameId, playerId, sessionToken);
       setLastMessage({ type: 'game_state', data: state });
+      setIsConnected(true);
       setError(null);
     } catch (err) {
+      setIsConnected(false);
       setError(err instanceof Error ? err.message : 'Failed to sync state');
     } finally {
       isRequestingStateRef.current = false;
     }
-  }, [gameId, playerId]);
+  }, [gameId, playerId, sessionToken]);
 
   const startHeartbeat = useCallback(() => {
     if (heartbeatRef.current) {
@@ -57,7 +60,7 @@ export function useGameSocket(gameId: string | null, playerId: string | null) {
   }, []);
 
   const connectWebSocket = useCallback(() => {
-    if (!gameId || !playerId || !WS_ENABLED) return;
+    if (!gameId || !playerId || !sessionToken || !WS_ENABLED) return;
 
     const ws = new WebSocket(`${WS_BASE}/ws/${gameId}`);
     wsRef.current = ws;
@@ -69,7 +72,7 @@ export function useGameSocket(gameId: string | null, playerId: string | null) {
       setReconnectAttempts(0);
       startHeartbeat();
       // Send join message
-      ws.send(JSON.stringify({ action: 'join', player_id: playerId }));
+      ws.send(JSON.stringify({ action: 'join', player_id: playerId, session_token: sessionToken }));
     };
 
     ws.onclose = (event) => {
@@ -108,13 +111,13 @@ export function useGameSocket(gameId: string | null, playerId: string | null) {
         console.error('Failed to parse message:', err);
       }
     };
-  }, [gameId, playerId, reconnectAttempts, startHeartbeat, stopHeartbeat]);
+  }, [gameId, playerId, reconnectAttempts, sessionToken, startHeartbeat, stopHeartbeat]);
 
   useEffect(() => {
-    if (!gameId || !playerId) return;
+    if (!gameId || !playerId || !sessionToken) return;
 
     if (!WS_ENABLED) {
-      setIsConnected(true);
+      setIsConnected(false);
       void fetchState();
       return;
     }
@@ -131,20 +134,20 @@ export function useGameSocket(gameId: string | null, playerId: string | null) {
         wsRef.current = null;
       }
     };
-  }, [gameId, playerId, connectWebSocket, fetchState, stopHeartbeat]);
+  }, [gameId, playerId, sessionToken, connectWebSocket, fetchState, stopHeartbeat]);
 
   useEffect(() => {
-    if (!gameId || !playerId || WS_ENABLED) return;
+    if (!gameId || !playerId || !sessionToken) return;
     const timer = window.setInterval(() => {
       void fetchState();
-    }, POLL_INTERVAL_MS);
+    }, isConnected ? CONNECTED_RESYNC_INTERVAL_MS : DISCONNECTED_POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [gameId, playerId, fetchState]);
+  }, [gameId, playerId, sessionToken, fetchState, isConnected]);
 
   const sendMessage = useCallback((action: string, data?: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       try {
-        wsRef.current.send(JSON.stringify({ action, player_id: playerId, ...data }));
+        wsRef.current.send(JSON.stringify({ action, player_id: playerId, session_token: sessionToken, ...data }));
         return true;
       } catch (err) {
         console.error('Failed to send WebSocket message:', err);
@@ -152,10 +155,10 @@ export function useGameSocket(gameId: string | null, playerId: string | null) {
         return false;
       }
     } else {
-      console.warn('WebSocket not connected, cannot send message');
+      void fetchState();
       return false;
     }
-  }, [playerId]);
+  }, [fetchState, playerId, sessionToken]);
 
   const reconnect = useCallback(() => {
     if (wsRef.current) {
@@ -167,35 +170,26 @@ export function useGameSocket(gameId: string | null, playerId: string | null) {
   }, [connectWebSocket]);
 
   const playCard = useCallback((suit: string, rank: string) => {
-    if (!gameId || !playerId) return;
+    if (!gameId || !playerId || !sessionToken) return;
 
-    if (WS_ENABLED && isConnected) {
-      const success = sendMessage('play', { suit, rank });
-      if (!success) {
-        // Fallback to HTTP if WebSocket fails
-        void gameApi
-          .playCard(gameId, playerId, { suit, rank } as Card)
-          .then(() => fetchState())
-          .catch((err) => {
-            setError(err instanceof Error ? err.message : 'Failed to play card');
-          });
-      }
-      return;
-    }
-
-    // HTTP fallback
     void gameApi
-      .playCard(gameId, playerId, { suit, rank } as Card)
-      .then(() => fetchState())
+      .playCard(gameId, playerId, sessionToken, { suit, rank } as Card)
+      .then(() => {
+        setError(null);
+        return fetchState();
+      })
       .catch((err) => {
         setError(err instanceof Error ? err.message : 'Failed to play card');
+        void fetchState();
       });
-  }, [sendMessage, gameId, playerId, fetchState, isConnected]);
+  }, [gameId, playerId, sessionToken, fetchState]);
 
   const getState = useCallback(() => {
     if (WS_ENABLED && isConnected) {
-      sendMessage('get_state');
-      return;
+      const success = sendMessage('get_state');
+      if (success) {
+        return;
+      }
     }
     void fetchState();
   }, [sendMessage, fetchState, isConnected]);

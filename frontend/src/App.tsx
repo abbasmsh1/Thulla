@@ -9,6 +9,7 @@ const App: React.FC = () => {
   const [gameId, setGameId] = useState<string | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [playerName, setPlayerName] = useState('');
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [gameState, setGameState] = useState<GameStateWithHand | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -18,7 +19,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<'home' | 'create' | 'join' | 'lobby' | 'game'>('home');
 
   // WebSocket connection
-  const { isConnected, lastMessage, playCard, getState, reconnect } = useGameSocket(gameId, playerId);
+  const { isConnected, lastMessage, playCard, getState, reconnect } = useGameSocket(gameId, playerId, sessionToken);
 
   // Handle WebSocket messages
   useEffect(() => {
@@ -87,6 +88,7 @@ const App: React.FC = () => {
       const result = await gameApi.joinGame(joinGameId, playerName);
       setGameId(joinGameId);
       setPlayerId(result.player_id);
+      setSessionToken(result.session_token);
       setView('lobby');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join game');
@@ -107,6 +109,7 @@ const App: React.FC = () => {
     try {
       const result = await gameApi.joinGame(gameId, playerName);
       setPlayerId(result.player_id);
+      setSessionToken(result.session_token);
       setView('lobby');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join game');
@@ -117,12 +120,12 @@ const App: React.FC = () => {
 
   // Start game
   const handleStartGame = async () => {
-    if (!gameId) return;
+    if (!gameId || !playerId || !sessionToken) return;
 
     setIsLoading(true);
     setError(null);
     try {
-      await gameApi.startGame(gameId);
+      await gameApi.startGame(gameId, playerId, sessionToken);
       setView('game');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start game');
