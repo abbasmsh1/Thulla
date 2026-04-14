@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 from enum import Enum
 import uuid
 import secrets
+import time
 
 
 class Suit(str, Enum):
@@ -125,6 +126,8 @@ class PlayedCard(BaseModel):
 
 class GameState(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    created_at: float = Field(default_factory=time.time)
+    last_activity_at: float = Field(default_factory=time.time)
     players: List[Player] = Field(default_factory=list)
     current_player_index: int = 0
     pile: List[PlayedCard] = Field(default_factory=list)
@@ -164,6 +167,8 @@ class GameState(BaseModel):
     def to_dict(self):
         return {
             "id": self.id,
+            "created_at": self.created_at,
+            "last_activity_at": self.last_activity_at,
             "players": [
                 {
                     "id": p.id,

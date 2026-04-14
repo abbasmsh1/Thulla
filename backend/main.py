@@ -35,6 +35,8 @@ app.add_middleware(
 # In-memory storage for games and connections
 games: Dict[str, GameEngine] = {}
 store = GameStore()
+WAITING_ROOM_DISCONNECT_TIMEOUT_SECONDS = 1800
+IN_GAME_DISCONNECT_TIMEOUT_SECONDS = 30
 
 
 class ConnectionManager:
@@ -164,12 +166,18 @@ async def connection_cleanup_task():
     """Periodically clean up stale connections."""
     while True:
         try:
-            # Clean up stale connections for all games
-            for game_id in list(manager.active_connections.keys()):
-                disconnected_player_ids = await manager.cleanup_stale_connections(game_id, max_age_seconds=30)
+            known_game_ids = set(store.list_game_ids()) | set(games.keys()) | set(manager.active_connections.keys())
+            for game_id in known_game_ids:
+                try:
+                    engine = load_engine_or_404(game_id)
+                except HTTPException:
+                    continue
+
+                timeout_seconds = get_disconnect_timeout_seconds(engine)
+                disconnected_player_ids = await manager.cleanup_stale_connections(game_id, max_age_seconds=timeout_seconds)
                 for player_id in disconnected_player_ids:
                     await mark_player_disconnected(game_id, player_id)
-                expired_player_ids = await expire_long_disconnected_players(game_id, timeout_seconds=30)
+                expired_player_ids = await expire_long_disconnected_players(game_id, timeout_seconds=timeout_seconds)
                 if expired_player_ids:
                     logger.info("Dropped disconnected players for game %s: %s", game_id, ", ".join(expired_player_ids))
         except Exception as e:
@@ -187,20 +195,25 @@ def normalize_game_id(game_id: str) -> str:
 def load_engine_or_404(game_id: str) -> GameEngine:
     game_id = normalize_game_id(game_id)
 
+    engine = store.load_engine(game_id)
+    if engine:
+        games[game_id] = engine
+        return engine
+
     if game_id in games:
         return games[game_id]
 
-    engine = store.load_engine(game_id)
-    if not engine:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    games[game_id] = engine
-    return engine
+    raise HTTPException(status_code=404, detail="Game not found")
 
 
 def persist_engine(game_id: str, engine: GameEngine) -> None:
+    engine.state.last_activity_at = time.time()
     games[game_id] = engine
     store.save_engine(game_id, engine)
+
+
+def get_disconnect_timeout_seconds(engine: GameEngine) -> int:
+    return WAITING_ROOM_DISCONNECT_TIMEOUT_SECONDS if engine.state.phase == GamePhase.WAITING else IN_GAME_DISCONNECT_TIMEOUT_SECONDS
 
 
 def is_allowed_origin(origin: Optional[str]) -> bool:

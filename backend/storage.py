@@ -33,6 +33,18 @@ class GameStore:
     def _key(self, game_id: str) -> str:
         return f"{self._prefix}{game_id}"
 
+    def list_game_ids(self) -> list[str]:
+        if self._client is not None:
+            try:
+                keys = list(self._client.scan_iter(match=f"{self._prefix}*"))
+                return [key[len(self._prefix):] for key in keys]
+            except Exception as exc:
+                print(f"WARNING: Redis list failed: {exc}")
+                traceback.print_exc()
+                self._client = None
+
+        return list(self._memory.keys())
+
     def save_engine(self, game_id: str, engine: GameEngine) -> None:
         payload = json.dumps(engine.state.model_dump(mode="json"))
         if self._client is not None:
