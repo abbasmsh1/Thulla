@@ -14,13 +14,15 @@ const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameStateWithHand | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [thullaReceived, setThullaReceived] = useState(false);
 
   // Join form state
   const [joinGameId, setJoinGameId] = useState('');
   const [view, setView] = useState<'home' | 'create' | 'join' | 'lobby' | 'game'>('home');
+  const enableRealtime = view === 'game';
 
   // WebSocket connection
-  const { isConnected, lastMessage, playCard, getState, reconnect } = useGameSocket(gameId, playerId, sessionToken);
+  const { isConnected, lastMessage, playCard, getState, reconnect } = useGameSocket(gameId, playerId, sessionToken, enableRealtime);
 
   // Handle WebSocket messages
   useEffect(() => {
@@ -47,6 +49,10 @@ const App: React.FC = () => {
           break;
         case 'pile_complete':
           console.log('Pile complete:', lastMessage.data);
+          if (!lastMessage.data.pile_passed && lastMessage.data.winner_id === playerId) {
+            setThullaReceived(true);
+            window.setTimeout(() => setThullaReceived(false), 50);
+          }
           // Resync after trick resolution to avoid dropped intermediate WS messages.
           getState();
           break;
@@ -672,6 +678,7 @@ const App: React.FC = () => {
         onPlayCard={handlePlayCard}
         isConnected={isConnected}
         onReconnect={reconnect}
+        thullaReceived={thullaReceived}
       />
     );
   }

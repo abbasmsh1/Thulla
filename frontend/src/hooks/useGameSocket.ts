@@ -14,7 +14,12 @@ const HEARTBEAT_INTERVAL_MS = 30000; // Send heartbeat every 30 seconds
 const RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-export function useGameSocket(gameId: string | null, playerId: string | null, sessionToken: string | null) {
+export function useGameSocket(
+  gameId: string | null,
+  playerId: string | null,
+  sessionToken: string | null,
+  enableRealtime = true
+) {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +65,7 @@ export function useGameSocket(gameId: string | null, playerId: string | null, se
   }, []);
 
   const connectWebSocket = useCallback(() => {
-    if (!gameId || !playerId || !sessionToken || !WS_ENABLED) return;
+    if (!gameId || !playerId || !sessionToken || !WS_ENABLED || !enableRealtime) return;
 
     const ws = new WebSocket(`${WS_BASE}/ws/${gameId}`);
     wsRef.current = ws;
@@ -111,12 +116,12 @@ export function useGameSocket(gameId: string | null, playerId: string | null, se
         console.error('Failed to parse message:', err);
       }
     };
-  }, [gameId, playerId, reconnectAttempts, sessionToken, startHeartbeat, stopHeartbeat]);
+  }, [enableRealtime, gameId, playerId, reconnectAttempts, sessionToken, startHeartbeat, stopHeartbeat]);
 
   useEffect(() => {
     if (!gameId || !playerId || !sessionToken) return;
 
-    if (!WS_ENABLED) {
+    if (!WS_ENABLED || !enableRealtime) {
       setIsConnected(false);
       void fetchState();
       return;
@@ -134,7 +139,7 @@ export function useGameSocket(gameId: string | null, playerId: string | null, se
         wsRef.current = null;
       }
     };
-  }, [gameId, playerId, sessionToken, connectWebSocket, fetchState, stopHeartbeat]);
+  }, [enableRealtime, gameId, playerId, sessionToken, connectWebSocket, fetchState, stopHeartbeat]);
 
   useEffect(() => {
     if (!gameId || !playerId || !sessionToken) return;
@@ -185,14 +190,14 @@ export function useGameSocket(gameId: string | null, playerId: string | null, se
   }, [gameId, playerId, sessionToken, fetchState]);
 
   const getState = useCallback(() => {
-    if (WS_ENABLED && isConnected) {
+    if (WS_ENABLED && enableRealtime && isConnected) {
       const success = sendMessage('get_state');
       if (success) {
         return;
       }
     }
     void fetchState();
-  }, [sendMessage, fetchState, isConnected]);
+  }, [enableRealtime, sendMessage, fetchState, isConnected]);
 
   return {
     isConnected,

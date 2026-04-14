@@ -20,6 +20,7 @@ interface GameBoardProps {
   reactions?: EmojiReaction[];
   isConnected?: boolean;
   onReconnect?: () => void;
+  thullaReceived?: boolean;
 }
 
 export const GameBoard: React.FC<GameBoardProps> = ({
@@ -28,7 +29,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   onSendReaction,
   reactions = [],
   isConnected = true,
-  onReconnect
+  onReconnect,
+  thullaReceived = false
 }) => {
   const PILE_DISCARD_DELAY_MS = 5000;
   const { players, current_player_id, pile, lead_suit, phase, winner_id, passed_pile_count } = gameState;
@@ -36,7 +38,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const myHand = gameState.your_hand || [];
   const validPlays = gameState.valid_plays || [];
   const [pilePassed, setPilePassed] = useState(false);
-  const [thullaAlert] = useState(false);
+  const [thullaAlert, setThullaAlert] = useState(false);
   const [displayPile, setDisplayPile] = useState<PlayedCardType[]>(pile);
   const discardDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -76,6 +78,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       return () => window.clearTimeout(t);
     }
   }, [passed_pile_count, prevPassedCount]);
+
+  useEffect(() => {
+    if (!thullaReceived) return;
+
+    setThullaAlert(true);
+    const timeout = window.setTimeout(() => setThullaAlert(false), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [thullaReceived]);
 
   useEffect(() => {
     if (discardDelayRef.current) {
@@ -122,11 +132,47 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const me = players.find(p => p.id === myId);
   const opponents = players.filter(p => p.id !== myId);
 
-  // Position opponents
-  const getOpponentPosition = (index: number): 'left' | 'right' | 'top' => {
-    const positions: ('left' | 'right' | 'top')[] = ['left', 'top', 'right'];
-    return positions[index % 3];
-  };
+  const getOpponentLayout = useCallback((index: number, total: number) => {
+    if (total <= 0) {
+      return { left: '50%', top: '18%', avatarSize: 56, labelFontSize: '13px', pillFontSize: '11px' };
+    }
+
+    const progress = total === 1 ? 0.5 : index / (total - 1);
+    const angle = (200 + (140 * progress)) * (Math.PI / 180);
+    const centerX = 50;
+    const centerY = total >= 7 ? 42 : 45;
+    const radiusX = total >= 8 ? 38 : total >= 5 ? 35 : 31;
+    const radiusY = total >= 8 ? 30 : total >= 5 ? 27 : 24;
+    const avatarSize = total >= 8 ? 46 : total >= 6 ? 52 : 64;
+    const labelFontSize = total >= 8 ? '12px' : total >= 6 ? '13px' : '15px';
+    const pillFontSize = total >= 8 ? '10px' : '12px';
+
+    return {
+      left: `${centerX + (Math.cos(angle) * radiusX)}%`,
+      top: `${centerY + (Math.sin(angle) * radiusY)}%`,
+      avatarSize,
+      labelFontSize,
+      pillFontSize
+    };
+  }, []);
+
+  const getOpponentReactionPosition = useCallback((index: number, total: number) => {
+    if (total <= 0) {
+      return { x: 50, y: 18 };
+    }
+
+    const progress = total === 1 ? 0.5 : index / (total - 1);
+    const angle = (200 + (140 * progress)) * (Math.PI / 180);
+    const centerX = 50;
+    const centerY = total >= 7 ? 42 : 45;
+    const radiusX = total >= 8 ? 36 : total >= 5 ? 33 : 29;
+    const radiusY = total >= 8 ? 28 : total >= 5 ? 25 : 22;
+
+    return {
+      x: centerX + (Math.cos(angle) * radiusX),
+      y: centerY + (Math.sin(angle) * radiusY)
+    };
+  }, []);
 
   // Calculate player positions for emoji reactions (percentage-based)
   const playerPositions = useMemo(() => {
@@ -135,21 +181,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       positions[me.id] = { x: 50, y: 85 };
     }
     opponents.forEach((opponent, index) => {
-      const pos = getOpponentPosition(index);
-      switch (pos) {
-        case 'left':
-          positions[opponent.id] = { x: 15, y: 50 };
-          break;
-        case 'right':
-          positions[opponent.id] = { x: 85, y: 50 };
-          break;
-        case 'top':
-          positions[opponent.id] = { x: 50, y: 15 };
-          break;
-      }
+      positions[opponent.id] = getOpponentReactionPosition(index, opponents.length);
     });
     return positions;
-  }, [me, opponents]);
+  }, [getOpponentReactionPosition, me, opponents]);
 
   // Handle sending reaction
   const handleSendReaction = useCallback((emoji: string) => {
@@ -455,8 +490,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             width: '100%',
             padding: '10px',
             display: 'flex',
-            justifyContent: 'space-around',
+            justifyContent: 'center',
             alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '12px 18px',
             background: 'rgba(0,0,0,0.3)',
             borderBottom: '1px solid rgba(212, 175, 55, 0.2)',
             zIndex: 10
@@ -466,13 +503,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 <PlayerAvatar
                   name={opponent.name}
                   isCurrentPlayer={opponent.id === current_player_id}
-                  size={48}
+                  size={opponents.length >= 6 ? 40 : 48}
                 />
                 <div style={{ textAlign: 'center', fontSize: '12px' }}>
                   <div style={{
                     color: '#fef9e7',
                     fontWeight: 600,
-                    fontSize: '11px'
+                    fontSize: opponents.length >= 6 ? '10px' : '11px'
                   }}>
                     {opponent.name}
                   </div>
@@ -494,33 +531,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 key={opponent.id}
                 style={{
                   position: 'absolute',
-                  ...(getOpponentPosition(index) === 'left' && {
-                    left: '40px',
-                    top: '50%',
-                    transform: 'translateY(-50%)'
-                  }),
-                  ...(getOpponentPosition(index) === 'right' && {
-                    right: '40px',
-                    top: '50%',
-                    transform: 'translateY(-50%)'
-                  }),
-                  ...(getOpponentPosition(index) === 'top' && {
-                    top: '100px',
-                    left: '50%',
-                    transform: 'translateX(-50%)'
-                  })
+                  left: getOpponentLayout(index, opponents.length).left,
+                  top: getOpponentLayout(index, opponents.length).top,
+                  transform: 'translate(-50%, -50%)'
                 }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
                   <PlayerAvatar
                     name={opponent.name}
                     isCurrentPlayer={opponent.id === current_player_id}
-                    size={64}
+                    size={getOpponentLayout(index, opponents.length).avatarSize}
                   />
                   <div style={{ textAlign: 'center' }}>
                     <div style={{
                       color: '#fef9e7',
-                    fontSize: '15px',
+                    fontSize: getOpponentLayout(index, opponents.length).labelFontSize,
                     fontWeight: 600,
                     fontFamily: 'Cormorant Garamond, serif',
                     textShadow: '0 2px 4px rgba(0,0,0,0.8)'
@@ -535,7 +560,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     padding: '5px 14px',
                     borderRadius: '15px',
                     marginTop: '6px',
-                    fontSize: '12px',
+                    fontSize: getOpponentLayout(index, opponents.length).pillFontSize,
                     color: '#d4af37',
                     border: '1px solid rgba(212, 175, 55, 0.3)',
                     fontFamily: 'Montserrat, sans-serif',
@@ -627,11 +652,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 fontFamily: 'Montserrat, sans-serif',
                 letterSpacing: '1px'
               }}>
-                Betrayal detected
-              </div>
-            </div>
-          </div>
-        )}
+                 You received the Thulla
+               </div>
+             </div>
+           </div>
+         )}
 
         {/* Center Pile Area */}
         <div style={{
