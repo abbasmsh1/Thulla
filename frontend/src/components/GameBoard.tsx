@@ -33,7 +33,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   thullaReceived = false
 }) => {
   const PILE_DISCARD_DELAY_MS = 5000;
-  const { players, current_player_id, pile, lead_suit, phase, winner_id, passed_pile_count } = gameState;
+  const { players, current_player_id, pile, lead_suit, phase, winner_id, passed_pile_count, finish_order } = gameState;
   const myId = gameState.your_id;
   const myHand = gameState.your_hand || [];
   const validPlays = gameState.valid_plays || [];
@@ -193,9 +193,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
   }, [onSendReaction]);
 
-  if (phase === 'finished' && winner_id) {
-    const winner = players.find(p => p.id === winner_id);
-    const isMe = winner_id === myId;
+  if (phase === 'finished' && finish_order.length > 0) {
+    const podium = finish_order
+      .slice(0, 3)
+      .map((playerId) => players.find((player) => player.id === playerId))
+      .filter((player): player is NonNullable<typeof player> => Boolean(player));
+    const winner = podium[0];
+    const isMe = winner?.id === myId;
+    const myPlacement = finish_order.indexOf(myId) + 1;
 
     return (
       <div style={{
@@ -262,6 +267,65 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               }}>
                 {winner.name}
               </h2>
+            </div>
+          )}
+
+          {podium.length > 0 && (
+            <div style={{
+              display: 'flex',
+              gap: '18px',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              marginBottom: '34px'
+            }}>
+              {podium.map((player, index) => (
+                <div
+                  key={player.id}
+                  className="glass-panel"
+                  style={{
+                    minWidth: '140px',
+                    padding: '18px 20px',
+                    textAlign: 'center',
+                    border: `1px solid ${index === 0 ? 'rgba(212, 175, 55, 0.45)' : 'rgba(255,255,255,0.12)'}`,
+                    background: index === 0
+                      ? 'linear-gradient(135deg, rgba(212, 175, 55, 0.18) 0%, rgba(255,255,255,0.06) 100%)'
+                      : 'rgba(255,255,255,0.05)'
+                  }}
+                >
+                  <div style={{
+                    color: index === 0 ? '#f4d03f' : 'rgba(254, 249, 231, 0.75)',
+                    fontSize: '12px',
+                    letterSpacing: '2px',
+                    textTransform: 'uppercase',
+                    fontFamily: 'Montserrat, sans-serif',
+                    marginBottom: '10px'
+                  }}>
+                    #{index + 1}
+                  </div>
+                  <PlayerAvatar name={player.name} size={56} />
+                  <div style={{
+                    marginTop: '10px',
+                    color: '#fef9e7',
+                    fontSize: '20px',
+                    fontFamily: 'Cormorant Garamond, serif',
+                    fontWeight: 700
+                  }}>
+                    {player.name}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {myPlacement > 0 && (
+            <div style={{
+              color: 'rgba(254, 249, 231, 0.78)',
+              fontSize: '15px',
+              marginBottom: '26px',
+              fontFamily: 'Montserrat, sans-serif',
+              letterSpacing: '1px'
+            }}>
+              You finished #{myPlacement}
             </div>
           )}
 

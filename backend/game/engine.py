@@ -299,14 +299,24 @@ class GameEngine:
         return self.state.get_player(highest.player_id)
 
     def _check_winner(self) -> bool:
-        """Check if any player has won (empty hand).
-
-        Returns True if someone has won.
-        """
+        """Track finishing order and finish when only one player has cards left."""
         for player in self.state.players:
-            if player.card_count == 0:
-                self.state.winner_id = player.id
-                return True
+            if player.card_count == 0 and player.id not in self.state.finish_order:
+                self.state.finish_order.append(player.id)
+
+        remaining_players = [player for player in self.state.players if player.card_count > 0]
+        if len(remaining_players) > 1:
+            if self.state.finish_order:
+                self.state.winner_id = self.state.finish_order[0]
+            return False
+
+        if len(remaining_players) == 1 and remaining_players[0].id not in self.state.finish_order:
+            self.state.finish_order.append(remaining_players[0].id)
+
+        if self.state.finish_order:
+            self.state.winner_id = self.state.finish_order[0]
+            return True
+
         return False
 
     def get_game_state_for_player(self, player_id: str) -> Dict:

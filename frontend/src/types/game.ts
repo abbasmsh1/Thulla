@@ -32,6 +32,7 @@ export interface GameState {
   owner_player_id: string | null;
   connected_player_count: number;
   dropped_player_ids: string[];
+  finish_order: string[];
 }
 
 export interface GameStateWithHand extends GameState {

@@ -138,6 +138,7 @@ class GameState(BaseModel):
     creator_claim_token: Optional[str] = Field(default_factory=lambda: secrets.token_urlsafe(24))
     disconnected_at: Dict[str, float] = Field(default_factory=dict)
     dropped_player_ids: List[str] = Field(default_factory=list)
+    finish_order: List[str] = Field(default_factory=list)
 
     class Config:
         arbitrary_types_allowed = True
@@ -181,5 +182,6 @@ class GameState(BaseModel):
             "passed_pile_count": self.passed_pile_count,
             "owner_player_id": self.owner_player_id,
             "connected_player_count": len([p for p in self.players if p.id not in self.disconnected_at]),
-            "dropped_player_ids": self.dropped_player_ids
+            "dropped_player_ids": self.dropped_player_ids,
+            "finish_order": self.finish_order
         }
