@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { GameStateWithHand, Card as CardType, SUIT_SYMBOLS } from '../types/game';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { GameStateWithHand, Card as CardType, PlayedCard as PlayedCardType, SUIT_SYMBOLS } from '../types/game';
 import { Card } from './Card';
 import { PlayerHand } from './PlayerHand';
 import { PlayerAvatar } from './PlayerAvatar';
@@ -30,12 +30,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   isConnected = true,
   onReconnect
 }) => {
+  const PILE_DISCARD_DELAY_MS = 5000;
   const { players, current_player_id, pile, lead_suit, phase, winner_id, passed_pile_count } = gameState;
   const myId = gameState.your_id;
   const myHand = gameState.your_hand || [];
   const validPlays = gameState.valid_plays || [];
   const [pilePassed, setPilePassed] = useState(false);
   const [thullaAlert] = useState(false);
+  const [displayPile, setDisplayPile] = useState<PlayedCardType[]>(pile);
+  const discardDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { playCardFlip, playWinTrick, playVictory, playShuffle } = useGameSounds();
 
@@ -73,6 +76,32 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       return () => window.clearTimeout(t);
     }
   }, [passed_pile_count, prevPassedCount]);
+
+  useEffect(() => {
+    if (discardDelayRef.current) {
+      clearTimeout(discardDelayRef.current);
+      discardDelayRef.current = null;
+    }
+
+    if (pile.length > 0) {
+      setDisplayPile(pile);
+      return;
+    }
+
+    if (displayPile.length > 0) {
+      discardDelayRef.current = window.setTimeout(() => {
+        setDisplayPile([]);
+        discardDelayRef.current = null;
+      }, PILE_DISCARD_DELAY_MS);
+    }
+
+    return () => {
+      if (discardDelayRef.current) {
+        clearTimeout(discardDelayRef.current);
+        discardDelayRef.current = null;
+      }
+    };
+  }, [pile, displayPile.length]);
 
   // Play shuffle sound on game start
   useEffect(() => {
@@ -652,12 +681,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               animation: 'spin 60s linear infinite'
             }} />
 
-            {pile.length > 0 ? (
+            {displayPile.length > 0 ? (
               <>
-                {pile.map((playedCard, index) => {
-                  const angle = (index - pile.length / 2) * 15;
+                {displayPile.map((playedCard, index) => {
+                  const angle = (index - displayPile.length / 2) * 15;
                   const offset = index * 2.5;
-                  const isTopCard = index === pile.length - 1;
+                  const isTopCard = index === displayPile.length - 1;
 
                   return (
                     <div
@@ -696,7 +725,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   borderRadius: '20px',
                   border: '1px solid rgba(212, 175, 55, 0.3)'
                 }}>
-                  {pile.length} / {players.length}
+                  {displayPile.length} / {players.length}
                 </div>
               </>
             ) : (
