@@ -3,8 +3,8 @@ import { WebSocketMessage } from '../types/game';
 import { gameApi } from '../api/gameApi';
 import { Card } from '../types/game';
 
-const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss' : 'ws';
-const WS_BASE = `${WS_PROTOCOL}://${window.location.hostname}:8000`;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}/_/backend`;
+const WS_BASE = API_BASE_URL.replace(/^http/, 'ws').replace(/^https/, 'wss');
 const POLL_INTERVAL_MS = 1200;
 const WS_ENABLED = import.meta.env.VITE_ENABLE_WS
   ? import.meta.env.VITE_ENABLE_WS === 'true'
