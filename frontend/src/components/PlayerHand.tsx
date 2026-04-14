@@ -1,6 +1,29 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card as CardType } from '../types/game';
 import { Card } from './Card';
+
+const SUIT_ORDER: Record<CardType['suit'], number> = {
+  spades: 0,
+  hearts: 1,
+  clubs: 2,
+  diamonds: 3
+};
+
+const RANK_ORDER: Record<CardType['rank'], number> = {
+  '2': 2,
+  '3': 3,
+  '4': 4,
+  '5': 5,
+  '6': 6,
+  '7': 7,
+  '8': 8,
+  '9': 9,
+  '10': 10,
+  J: 11,
+  Q: 12,
+  K: 13,
+  A: 14
+};
 
 interface PlayerHandProps {
   cards: CardType[];
@@ -15,6 +38,14 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
   isCurrentPlayer,
   onPlayCard
 }) => {
+  const [windowWidth, setWindowWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1200);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   if (!cards || cards.length === 0) {
     return (
       <div style={{
@@ -33,30 +64,49 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
     );
   }
 
+  const cardScale = windowWidth <= 480
+    ? 0.64
+    : windowWidth <= 768
+      ? 0.82
+      : windowWidth <= 1024
+        ? 0.92
+        : 1;
+
+  const cardWidth = 110 * cardScale;
+  const cardHeight = 165 * cardScale;
+  const handHeight = Math.max(200, cardHeight + 40);
+
   const isValidPlay = (card: CardType): boolean => {
     return validPlays.some(
       valid => valid.suit === card.suit && valid.rank === card.rank
     );
   };
 
+  const sortedCards = [...cards].sort((a, b) => {
+    const suitDiff = SUIT_ORDER[a.suit] - SUIT_ORDER[b.suit];
+    if (suitDiff !== 0) return suitDiff;
+    return RANK_ORDER[a.rank] - RANK_ORDER[b.rank];
+  });
+
   // Calculate fan layout with improved mathematics
   const getCardStyle = (index: number, total: number): React.CSSProperties => {
-    const maxAngle = Math.min(20, total * 1.8);
+    const maxAngle = Math.min(18, total * 1.5);
     const angleStep = total > 1 ? (maxAngle * 2) / (total - 1) : 0;
     const rotation = total > 1 ? -maxAngle + (angleStep * index) : 0;
 
-    const verticalOffset = Math.abs(rotation) * 0.6;
+    const verticalOffset = Math.abs(rotation) * 0.55 * cardScale;
 
-    const maxSpacing = 50;
-    const spacing = Math.max(25, Math.min(maxSpacing, 550 / total));
+    const maxSpacing = 42 * cardScale;
+    const spacing = Math.max(18, Math.min(maxSpacing, (windowWidth - 120) / total));
     const startX = -((total - 1) * spacing) / 2;
     const horizontalOffset = startX + (index * spacing);
 
     return {
       transform: `translateX(${horizontalOffset}px) translateY(${verticalOffset}px) rotate(${rotation}deg)`,
       transformOrigin: 'bottom center',
-      zIndex: index,
-      transition: 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), z-index 0s 0.3s'
+      zIndex: index + 1,
+      transition: 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), z-index 0s 0.3s',
+      touchAction: 'manipulation'
     };
   };
 
@@ -93,15 +143,15 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
       {/* Cards container with improved arc */}
       <div style={{
         position: 'relative',
-        height: '220px',
+        height: `${handHeight}px`,
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'flex-end',
-        padding: '10px 80px',
+        padding: cardScale < 1 ? '10px 28px' : '10px 80px',
         width: '100%',
-        marginTop: '-20px'
+        marginTop: cardScale < 1 ? '-10px' : '-20px'
       }}>
-        {cards.map((card, index) => {
+        {sortedCards.map((card, index) => {
           const isValid = isCurrentPlayer && isValidPlay(card);
 
           return (
@@ -111,9 +161,12 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
               style={{
                 position: 'absolute',
                 left: '50%',
-                marginLeft: '-55px',
+                marginLeft: `-${cardWidth / 2}px`,
                 ...getCardStyle(index, cards.length),
-                animation: isValid && isCurrentPlayer ? 'validCardGlow 2s ease-in-out infinite' : 'none'
+                animation: isValid && isCurrentPlayer ? 'validCardGlow 2s ease-in-out infinite' : 'none',
+                width: `${cardWidth}px`,
+                height: `${cardHeight}px`,
+                touchAction: 'manipulation'
               }}
             >
               {/* Valid play indicator - enhanced */}
@@ -153,6 +206,7 @@ export const PlayerHand: React.FC<PlayerHandProps> = ({
                 card={card}
                 isPlayable={isValid}
                 onClick={() => onPlayCard(card)}
+                style={{ width: `${cardWidth}px`, height: `${cardHeight}px` }}
               />
             </div>
           );

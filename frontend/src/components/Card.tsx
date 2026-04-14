@@ -100,7 +100,16 @@ export const Card: React.FC<CardProps> = ({
 
   return (
     <div
-      onClick={isPlayable ? onClick : undefined}
+      className="card-component"
+      role={isPlayable ? 'button' : undefined}
+      tabIndex={isPlayable ? 0 : -1}
+      onPointerUp={isPlayable ? onClick : undefined}
+      onKeyDown={isPlayable ? (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick?.();
+        }
+      } : undefined}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{
@@ -121,6 +130,8 @@ export const Card: React.FC<CardProps> = ({
         position: 'relative',
         overflow: 'hidden',
         userSelect: 'none',
+        touchAction: 'manipulation',
+        WebkitTapHighlightColor: 'transparent',
         ...style
       }}
     >

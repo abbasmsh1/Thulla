@@ -259,6 +259,59 @@ body::before {
   100% { background-position: 0% center; }
 }
 
+.card-component {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 100%;
+  min-width: 60px;
+  min-height: 90px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.card-wrapper {
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .glass-panel {
+    padding: 24px !important;
+  }
+
+  .glass-button {
+    padding: 14px 22px !important;
+    font-size: 0.95rem !important;
+  }
+
+  .title-glow {
+    font-size: 4rem !important;
+    letter-spacing: 8px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    background-position: center;
+  }
+
+  .glass-panel {
+    padding: 18px !important;
+    margin: 0 12px;
+  }
+
+  .glass-button {
+    padding: 12px 18px !important;
+    font-size: 0.9rem !important;
+  }
+
+  .ambient-orb {
+    display: none !important;
+  }
+}
+
+
 /* Card hover and overlap handling */
 .card-wrapper {
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), z-index 0s 0.3s;
