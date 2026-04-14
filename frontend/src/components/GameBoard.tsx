@@ -785,47 +785,49 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           playerPositions={playerPositions}
         />
       </div>
-
-      <style>{`
-        @keyframes pilePassedFade {
-          0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.8) translateY(20px); }
-          15%  { opacity: 1; transform: translate(-50%, -50%) scale(1.05) translateY(0); }
-          80%  { opacity: 1; transform: translate(-50%, -50%) scale(1) translateY(0); }
-          100% { opacity: 0; transform: translate(-50%, -50%) scale(0.95) translateY(-20px); }
-        }
-
-        @keyframes thullaShock {
-          0% { transform: translate(-50%, -50%) scale(0.5) rotate(-10deg); opacity: 0; }
-          10% { transform: translate(-50%, -50%) scale(1.2) rotate(10deg); opacity: 1; }
-          15% { transform: translate(-50%, -50%) scale(0.9) rotate(-5deg); }
-          20% { transform: translate(-50%, -50%) scale(1.05) rotate(3deg); }
-          25% { transform: translate(-50%, -50%) scale(1) rotate(0deg); }
-          80% { opacity: 1; }
-          100% { opacity: 0; transform: translate(-50%, -50%) scale(1.1) translateY(-30px); }
-        }
-
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        @keyframes victoryPulse {
-          0%, 100% {
-            transform: scale(1);
-            filter: drop-shadow(0 0 30px rgba(212, 175, 55, 0.5));
-          }
-          50% {
-            transform: scale(1.05);
-            filter: drop-shadow(0 0 60px rgba(212, 175, 55, 0.8));
-          }
-        }
-
-        @keyframes starsFloat {
-          from { transform: translateY(0); }
-          to { transform: translateY(-100vh); }
-        }
-      `}</style>
     </>
+  );
+
+  return (
+    <style>{`
+      @keyframes pilePassedFade {
+        0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.8) translateY(20px); }
+        15%  { opacity: 1; transform: translate(-50%, -50%) scale(1.05) translateY(0); }
+        80%  { opacity: 1; transform: translate(-50%, -50%) scale(1) translateY(0); }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(0.95) translateY(-20px); }
+      }
+
+      @keyframes thullaShock {
+        0% { transform: translate(-50%, -50%) scale(0.5) rotate(-10deg); opacity: 0; }
+        10% { transform: translate(-50%, -50%) scale(1.2) rotate(10deg); opacity: 1; }
+        15% { transform: translate(-50%, -50%) scale(0.9) rotate(-5deg); }
+        20% { transform: translate(-50%, -50%) scale(1.05) rotate(3deg); }
+        25% { transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+        80% { opacity: 1; }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(1.1) translateY(-30px); }
+      }
+
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes victoryPulse {
+        0%, 100% {
+          transform: scale(1);
+          filter: drop-shadow(0 0 30px rgba(212, 175, 55, 0.5));
+        }
+        50% {
+          transform: scale(1.05);
+          filter: drop-shadow(0 0 60px rgba(212, 175, 55, 0.8));
+        }
+      }
+
+      @keyframes starsFloat {
+        from { transform: translateY(0); }
+        to { transform: translateY(-100vh); }
+      }
+    `}</style>
   );
 };
 
