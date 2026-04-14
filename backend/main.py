@@ -2,10 +2,15 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, List
 import json
+import logging
+import traceback
 
 from game.models import Card, Suit, Rank, GamePhase
 from game.engine import GameEngine, GameError
 from storage import GameStore
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Card Game API")
 
@@ -87,7 +92,12 @@ def persist_engine(game_id: str, engine: GameEngine) -> None:
 async def create_game():
     """Create a new game and return its ID."""
     engine = GameEngine()
-    persist_engine(engine.state.id, engine)
+    try:
+        persist_engine(engine.state.id, engine)
+    except Exception as exc:
+        logger.exception("Failed to persist new game")
+        raise HTTPException(status_code=500, detail="Failed to create game")
+
     return {
         "game_id": engine.state.id,
         "status": "created",
@@ -115,6 +125,9 @@ async def join_game(game_id: str, name: str):
         }
     except GameError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as exc:
+        logger.exception("Failed to join game %s", game_id)
+        raise HTTPException(status_code=500, detail="Server error while joining game")
 
 
 @app.post("/games/{game_id}/start")
@@ -146,6 +159,9 @@ async def start_game(game_id: str):
         }
     except GameError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as exc:
+        logger.exception("Failed to start game %s", game_id)
+        raise HTTPException(status_code=500, detail="Server error while starting game")
 
 
 @app.get("/games/{game_id}/state")
