@@ -260,12 +260,10 @@ export const Card: React.FC<CardProps> = ({
           )}
 
           {card.suit === 'clubs' && (
-            <g fill={suitColor} filter="url(#suitShadow)">
-              <circle cx="30" cy="35" r="22" />
-              <circle cx="70" cy="35" r="22" />
-              <circle cx="50" cy="15" r="22" />
-              <path d="M45 55 L55 55 L55 85 L45 85 Z" />
-              <path d="M35 85 L65 85 L50 100 Z" />
+            <g fill={`url(#suitGrad-${card.suit})`} filter="url(#suitShadow)">
+              <path d="M50 12 C28 12 18 32 24 48 C10 48 10 68 24 78 C24 92 36 100 50 100 C64 100 76 92 76 78 C90 68 90 48 76 48 C82 32 72 12 50 12 Z" />
+              <path d="M45 60 L55 60 L55 92 C55 94 53 96 50 96 C47 96 45 94 45 92 Z" />
+              <path d="M38 92 C40 92 45 98 50 98 C55 98 60 92 62 92 C59 100 51 104 50 104 C49 104 41 100 38 92 Z" fill="rgba(255,255,255,0.14)" />
             </g>
           )}
 

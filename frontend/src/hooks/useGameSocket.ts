@@ -10,8 +10,8 @@ const DISCONNECTED_POLL_INTERVAL_MS = 800;
 const WS_ENABLED = import.meta.env.VITE_ENABLE_WS
   ? import.meta.env.VITE_ENABLE_WS !== 'false'
   : true;
-const HEARTBEAT_INTERVAL_MS = 30000; // Send heartbeat every 30 seconds
-const RECONNECT_DELAY_MS = 1000;
+const HEARTBEAT_INTERVAL_MS = 10000; // Send heartbeat every 10 seconds
+const RECONNECT_DELAY_MS = 1500;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 export function useGameSocket(
@@ -24,9 +24,11 @@ export function useGameSocket(
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const reconnectAttemptsRef = useRef(0);
   const wsRef = useRef<WebSocket | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const manualCloseRef = useRef(false);
   const isRequestingStateRef = useRef(false);
 
   const fetchState = useCallback(async () => {
@@ -74,6 +76,7 @@ export function useGameSocket(
       console.log('WebSocket connected');
       setIsConnected(true);
       setError(null);
+      reconnectAttemptsRef.current = 0;
       setReconnectAttempts(0);
       startHeartbeat();
       // Send join message
@@ -85,14 +88,25 @@ export function useGameSocket(
       setIsConnected(false);
       stopHeartbeat();
 
-      // Attempt reconnection if not a clean close and under max attempts
-      if (!event.wasClean && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        setReconnectAttempts(prev => prev + 1);
-        reconnectTimeoutRef.current = setTimeout(() => {
-          console.log(`Attempting to reconnect (${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+      if (manualCloseRef.current) {
+        manualCloseRef.current = false;
+        return;
+      }
+
+      const currentAttempts = reconnectAttemptsRef.current;
+      const shouldReconnect = !event.wasClean && event.code !== 1000 && currentAttempts < MAX_RECONNECT_ATTEMPTS;
+
+      if (shouldReconnect) {
+        reconnectAttemptsRef.current = currentAttempts + 1;
+        setReconnectAttempts(currentAttempts + 1);
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          console.log(`Attempting to reconnect (${currentAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
           connectWebSocket();
         }, RECONNECT_DELAY_MS);
-      } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      } else if (currentAttempts >= MAX_RECONNECT_ATTEMPTS) {
         setError('Connection lost. Please refresh the page to reconnect.');
       }
     };
@@ -109,14 +123,15 @@ export function useGameSocket(
         setLastMessage(message);
 
         // Reset reconnect attempts on successful message
-        if (reconnectAttempts > 0) {
+        if (reconnectAttemptsRef.current > 0) {
+          reconnectAttemptsRef.current = 0;
           setReconnectAttempts(0);
         }
       } catch (err) {
         console.error('Failed to parse message:', err);
       }
     };
-  }, [enableRealtime, gameId, playerId, reconnectAttempts, sessionToken, startHeartbeat, stopHeartbeat]);
+  }, [enableRealtime, gameId, playerId, sessionToken, startHeartbeat, stopHeartbeat]);
 
   useEffect(() => {
     if (!gameId || !playerId || !sessionToken) return;
@@ -135,6 +150,7 @@ export function useGameSocket(
       }
       stopHeartbeat();
       if (wsRef.current) {
+        manualCloseRef.current = true;
         wsRef.current.close();
         wsRef.current = null;
       }
@@ -167,8 +183,10 @@ export function useGameSocket(
 
   const reconnect = useCallback(() => {
     if (wsRef.current) {
+      manualCloseRef.current = true;
       wsRef.current.close();
     }
+    reconnectAttemptsRef.current = 0;
     setReconnectAttempts(0);
     setError(null);
     connectWebSocket();

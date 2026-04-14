@@ -36,7 +36,7 @@ app.add_middleware(
 games: Dict[str, GameEngine] = {}
 store = GameStore()
 WAITING_ROOM_DISCONNECT_TIMEOUT_SECONDS = 1800
-IN_GAME_DISCONNECT_TIMEOUT_SECONDS = 30
+IN_GAME_DISCONNECT_TIMEOUT_SECONDS = 60
 
 
 class ConnectionManager:
@@ -436,11 +436,11 @@ async def broadcast_game_state(game_id: str):
         games[game_id] = engine
     base_state = engine.state.to_dict()
 
-    # Send personalized state to each connection
+    # Send personalized state to each connection and clean up dead sockets.
     if game_id in manager.active_connections:
+        disconnected = []
         for websocket in manager.active_connections[game_id]:
             try:
-                # Try to get player_id from query params (set during connection)
                 player_id = getattr(websocket, 'player_id', None)
                 if player_id:
                     state = engine.get_game_state_for_player(player_id)
@@ -452,7 +452,10 @@ async def broadcast_game_state(game_id: str):
                     "data": state
                 })
             except Exception:
-                pass
+                disconnected.append(websocket)
+
+        for websocket in disconnected:
+            manager.disconnect(game_id, websocket)
 
 
 @app.websocket("/ws/{game_id}")
