@@ -20,9 +20,13 @@ class GameStore:
         redis_url = os.getenv("REDIS_URL")
         if redis_url and redis is not None:
             # Ensure the URL has a proper scheme
-            if not redis_url.startswith(('redis://', 'rediss://', 'unix://')):
+            if not redis_url.startswith(("redis://", "rediss://", "unix://")):
                 redis_url = f"redis://{redis_url}"
-            self._client = redis.from_url(redis_url, decode_responses=True)
+            try:
+                self._client = redis.from_url(redis_url, decode_responses=True)
+            except Exception as exc:
+                print(f"WARNING: Redis client could not be initialized: {exc}")
+                self._client = None
 
     def _key(self, game_id: str) -> str:
         return f"{self._prefix}{game_id}"
