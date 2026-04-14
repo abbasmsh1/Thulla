@@ -25,6 +25,60 @@ class GameEngine:
         self.state.players.append(player)
         return player
 
+    def _is_player_dropped(self, player_id: str) -> bool:
+        return player_id in self.state.dropped_player_ids
+
+    def _is_turn_eligible(self, player: Player) -> bool:
+        return player.card_count > 0 and not self._is_player_dropped(player.id)
+
+    def ensure_valid_current_player(self) -> None:
+        if self.state.phase != GamePhase.PLAYING or not self.state.players:
+            return
+
+        player_count = len(self.state.players)
+        for offset in range(player_count):
+            index = (self.state.current_player_index + offset) % player_count
+            player = self.state.players[index]
+            if self._is_turn_eligible(player):
+                self.state.current_player_index = index
+                return
+
+    def mark_player_disconnected(self, player_id: str, disconnected_at: Optional[float] = None) -> bool:
+        if not self.state.get_player(player_id):
+            return False
+        if player_id in self.state.disconnected_at:
+            return False
+        self.state.disconnected_at[player_id] = disconnected_at or 0.0
+        return True
+
+    def expire_disconnected_players(self, current_time: float, timeout_seconds: int) -> List[str]:
+        expired: List[str] = []
+        for player_id, since in list(self.state.disconnected_at.items()):
+            if current_time - since >= timeout_seconds and player_id not in self.state.dropped_player_ids:
+                self.state.dropped_player_ids.append(player_id)
+                expired.append(player_id)
+
+        if expired:
+            self.ensure_valid_current_player()
+        return expired
+
+    def mark_player_reconnected(self, player_id: str) -> bool:
+        player = self.state.get_player(player_id)
+        if not player:
+            return False
+
+        changed = False
+        if player_id in self.state.disconnected_at:
+            del self.state.disconnected_at[player_id]
+            changed = True
+        if player_id in self.state.dropped_player_ids:
+            self.state.dropped_player_ids = [pid for pid in self.state.dropped_player_ids if pid != player_id]
+            changed = True
+
+        if changed:
+            self.ensure_valid_current_player()
+        return changed
+
     def remove_player(self, player_id: str) -> bool:
         """Remove a player from the game."""
         if self.state.phase != GamePhase.WAITING:
@@ -60,6 +114,7 @@ class GameEngine:
                 break
 
         self.state.phase = GamePhase.PLAYING
+        self.ensure_valid_current_player()
         return self.state
 
     def get_valid_plays(self, player_id: str) -> List[Card]:
@@ -112,6 +167,8 @@ class GameEngine:
         if self.state.phase != GamePhase.PLAYING:
             result["message"] = "Game is not in playing phase"
             return result
+
+        self.ensure_valid_current_player()
 
         # Validate it's the player's turn
         current_player = self.state.current_player
@@ -216,6 +273,7 @@ class GameEngine:
         else:
             # Move to next player
             self.state.advance_turn()
+            self.ensure_valid_current_player()
 
         result["success"] = True
         return result
@@ -253,6 +311,7 @@ class GameEngine:
 
     def get_game_state_for_player(self, player_id: str) -> Dict:
         """Get game state with player-specific info (their hand visible)."""
+        self.ensure_valid_current_player()
         state = self.state.to_dict()
 
         # Add current player's hand
@@ -275,6 +334,7 @@ class GameEngine:
 
         if player.card_count == 0:
             self.state.advance_turn()
+            self.ensure_valid_current_player()
             return {"success": True, "message": "Turn skipped (no cards)"}
 
         return {"success": False, "message": "Cannot skip - you have cards to play"}

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Dict, List, Optional
 from enum import Enum
 import uuid
 import secrets
@@ -134,6 +134,10 @@ class GameState(BaseModel):
     winner_id: Optional[str] = None
     starting_player_id: Optional[str] = None
     passed_pile_count: int = 0
+    owner_player_id: Optional[str] = None
+    creator_claim_token: Optional[str] = Field(default_factory=lambda: secrets.token_urlsafe(24))
+    disconnected_at: Dict[str, float] = Field(default_factory=dict)
+    dropped_player_ids: List[str] = Field(default_factory=list)
 
     class Config:
         arbitrary_types_allowed = True
@@ -174,5 +178,8 @@ class GameState(BaseModel):
             "lead_suit": self.lead_suit.value if self.lead_suit else None,
             "phase": self.phase.value,
             "winner_id": self.winner_id,
-            "passed_pile_count": self.passed_pile_count
+            "passed_pile_count": self.passed_pile_count,
+            "owner_player_id": self.owner_player_id,
+            "connected_player_count": len([p for p in self.players if p.id not in self.disconnected_at]),
+            "dropped_player_ids": self.dropped_player_ids
         }

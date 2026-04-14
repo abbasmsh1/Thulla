@@ -8,7 +8,7 @@ function createPlayerHeaders(sessionToken?: string) {
 }
 
 export const gameApi = {
-  createGame: async (): Promise<{ game_id: string; status: string }> => {
+  createGame: async (): Promise<{ game_id: string; creator_token: string; status: string }> => {
     const response = await fetch(`${API_BASE}/games`, {
       method: 'POST',
       headers: JSON_HEADERS,
@@ -18,10 +18,10 @@ export const gameApi = {
     return response.json();
   },
 
-  joinGame: async (gameId: string, name: string): Promise<{ player_id: string; player_name: string; session_token: string }> => {
+  joinGame: async (gameId: string, name: string, creatorToken?: string): Promise<{ player_id: string; player_name: string; session_token: string; is_owner: boolean }> => {
     const response = await fetch(`${API_BASE}/games/${gameId}/join?name=${encodeURIComponent(name)}`, {
       method: 'POST',
-      headers: JSON_HEADERS,
+      headers: creatorToken ? { ...JSON_HEADERS, 'X-Creator-Token': creatorToken } : JSON_HEADERS,
       cache: 'no-store'
     });
     if (!response.ok) {

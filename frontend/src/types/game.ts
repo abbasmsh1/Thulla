@@ -29,6 +29,9 @@ export interface GameState {
   phase: GamePhase;
   winner_id: string | null;
   passed_pile_count: number;
+  owner_player_id: string | null;
+  connected_player_count: number;
+  dropped_player_ids: string[];
 }
 
 export interface GameStateWithHand extends GameState {

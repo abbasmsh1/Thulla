@@ -41,25 +41,60 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, List[WebSocket]] = {}
         self.connection_timestamps: Dict[str, Dict[WebSocket, float]] = {}
+        self.socket_players: Dict[str, Dict[WebSocket, str]] = {}
+        self.player_connections: Dict[str, Dict[str, set[WebSocket]]] = {}
 
     async def connect(self, game_id: str, websocket: WebSocket):
         await websocket.accept()
         if game_id not in self.active_connections:
             self.active_connections[game_id] = []
             self.connection_timestamps[game_id] = {}
+            self.socket_players[game_id] = {}
+            self.player_connections[game_id] = {}
         self.active_connections[game_id].append(websocket)
         self.connection_timestamps[game_id][websocket] = time.time()
 
-    def disconnect(self, game_id: str, websocket: WebSocket):
+    def assign_player(self, game_id: str, websocket: WebSocket, player_id: str):
+        if game_id not in self.socket_players:
+            self.socket_players[game_id] = {}
+        if game_id not in self.player_connections:
+            self.player_connections[game_id] = {}
+
+        previous_player_id = self.socket_players[game_id].get(websocket)
+        if previous_player_id and previous_player_id in self.player_connections[game_id]:
+            self.player_connections[game_id][previous_player_id].discard(websocket)
+            if not self.player_connections[game_id][previous_player_id]:
+                del self.player_connections[game_id][previous_player_id]
+
+        self.socket_players[game_id][websocket] = player_id
+        self.player_connections[game_id].setdefault(player_id, set()).add(websocket)
+
+    def disconnect(self, game_id: str, websocket: WebSocket) -> Optional[str]:
+        disconnected_player_id = None
+        player_still_connected = False
         if game_id in self.active_connections:
             if websocket in self.active_connections[game_id]:
                 self.active_connections[game_id].remove(websocket)
                 if websocket in self.connection_timestamps.get(game_id, {}):
                     del self.connection_timestamps[game_id][websocket]
+            if websocket in self.socket_players.get(game_id, {}):
+                disconnected_player_id = self.socket_players[game_id].pop(websocket)
+                if disconnected_player_id in self.player_connections.get(game_id, {}):
+                    self.player_connections[game_id][disconnected_player_id].discard(websocket)
+                    player_still_connected = bool(self.player_connections[game_id][disconnected_player_id])
+                    if not player_still_connected:
+                        del self.player_connections[game_id][disconnected_player_id]
             if not self.active_connections[game_id]:
                 del self.active_connections[game_id]
                 if game_id in self.connection_timestamps:
                     del self.connection_timestamps[game_id]
+                if game_id in self.socket_players:
+                    del self.socket_players[game_id]
+                if game_id in self.player_connections:
+                    del self.player_connections[game_id]
+        if disconnected_player_id and not player_still_connected:
+            return disconnected_player_id
+        return None
 
     async def broadcast(self, game_id: str, message: dict):
         if game_id not in self.active_connections:
@@ -85,13 +120,14 @@ class ConnectionManager:
         """Get number of active connections for a game."""
         return len(self.active_connections.get(game_id, []))
 
-    async def cleanup_stale_connections(self, game_id: str, max_age_seconds: int = 60):
+    async def cleanup_stale_connections(self, game_id: str, max_age_seconds: int = 60) -> List[str]:
         """Remove connections that haven't sent a heartbeat recently."""
         if game_id not in self.connection_timestamps:
-            return
+            return []
 
         current_time = time.time()
         stale_connections = []
+        disconnected_player_ids: List[str] = []
 
         for websocket, last_heartbeat in self.connection_timestamps[game_id].items():
             if current_time - last_heartbeat > max_age_seconds:
@@ -99,7 +135,11 @@ class ConnectionManager:
 
         for websocket in stale_connections:
             logger.info(f"Cleaning up stale connection for game {game_id}")
-            self.disconnect(game_id, websocket)
+            player_id = self.disconnect(game_id, websocket)
+            if player_id:
+                disconnected_player_ids.append(player_id)
+
+        return disconnected_player_ids
 
 
 manager = ConnectionManager()
@@ -126,12 +166,17 @@ async def connection_cleanup_task():
         try:
             # Clean up stale connections for all games
             for game_id in list(manager.active_connections.keys()):
-                await manager.cleanup_stale_connections(game_id, max_age_seconds=60)
+                disconnected_player_ids = await manager.cleanup_stale_connections(game_id, max_age_seconds=30)
+                for player_id in disconnected_player_ids:
+                    await mark_player_disconnected(game_id, player_id)
+                expired_player_ids = await expire_long_disconnected_players(game_id, timeout_seconds=30)
+                if expired_player_ids:
+                    logger.info("Dropped disconnected players for game %s: %s", game_id, ", ".join(expired_player_ids))
         except Exception as e:
             logger.error(f"Error in connection cleanup task: {e}")
 
-        # Run cleanup every 30 seconds
-        await asyncio.sleep(30)
+        # Run cleanup frequently so presence updates feel responsive.
+        await asyncio.sleep(5)
 
 
 def normalize_game_id(game_id: str) -> str:
@@ -174,6 +219,29 @@ def authenticate_player(engine: GameEngine, player_id: str, session_token: Optio
         raise HTTPException(status_code=401, detail="Invalid player session")
 
 
+async def mark_player_disconnected(game_id: str, player_id: str) -> None:
+    engine = load_engine_or_404(game_id)
+    if engine.mark_player_disconnected(player_id, disconnected_at=time.time()):
+        persist_engine(game_id, engine)
+        await broadcast_game_state(game_id)
+
+
+async def expire_long_disconnected_players(game_id: str, timeout_seconds: int) -> List[str]:
+    engine = load_engine_or_404(game_id)
+    expired_player_ids = engine.expire_disconnected_players(time.time(), timeout_seconds)
+    if expired_player_ids:
+        persist_engine(game_id, engine)
+        await broadcast_game_state(game_id)
+    return expired_player_ids
+
+
+async def mark_player_reconnected(game_id: str, player_id: str) -> None:
+    engine = load_engine_or_404(game_id)
+    if engine.mark_player_reconnected(player_id):
+        persist_engine(game_id, engine)
+        await broadcast_game_state(game_id)
+
+
 @app.post("/games")
 async def create_game():
     """Create a new game and return its ID."""
@@ -186,13 +254,14 @@ async def create_game():
 
     return {
         "game_id": engine.state.id,
+        "creator_token": engine.state.creator_claim_token,
         "status": "created",
         "message": "Game created. Share this ID for others to join."
     }
 
 
 @app.post("/games/{game_id}/join")
-async def join_game(game_id: str, name: str):
+async def join_game(game_id: str, name: str, x_creator_token: Optional[str] = Header(default=None)):
     """Join an existing game."""
     game_id = normalize_game_id(game_id)
     engine = load_engine_or_404(game_id)
@@ -202,11 +271,19 @@ async def join_game(game_id: str, name: str):
 
     try:
         player = engine.add_player(name)
+        if (
+            engine.state.owner_player_id is None
+            and engine.state.creator_claim_token
+            and x_creator_token == engine.state.creator_claim_token
+        ):
+            engine.state.owner_player_id = player.id
+            engine.state.creator_claim_token = None
         persist_engine(game_id, engine)
         return {
             "player_id": player.id,
             "player_name": player.name,
             "session_token": player.session_token,
+            "is_owner": engine.state.owner_player_id == player.id,
             "game_id": game_id,
             "message": f"Joined game {game_id}"
         }
@@ -223,6 +300,8 @@ async def start_game(game_id: str, player_id: str, x_player_token: Optional[str]
     game_id = normalize_game_id(game_id)
     engine = load_engine_or_404(game_id)
     authenticate_player(engine, player_id, x_player_token)
+    if engine.state.owner_player_id != player_id:
+        raise HTTPException(status_code=403, detail="Only the game creator can start the game")
 
     try:
         engine.start_game()
@@ -264,6 +343,8 @@ async def get_game_state(
 
     if player_id:
         authenticate_player(engine, player_id, x_player_token)
+        await mark_player_reconnected(game_id, player_id)
+        engine = load_engine_or_404(game_id)
         return engine.get_game_state_for_player(player_id)
 
     return engine.state.to_dict()
@@ -281,6 +362,8 @@ async def play_card(
     game_id = normalize_game_id(game_id)
     engine = load_engine_or_404(game_id)
     authenticate_player(engine, player_id, x_player_token)
+    await mark_player_reconnected(game_id, player_id)
+    engine = load_engine_or_404(game_id)
 
     # Parse card
     try:
@@ -397,6 +480,8 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                                 "data": {"message": "Invalid player session"}
                             })
                             continue
+                        manager.assign_player(game_id, websocket, player_id)
+                        await mark_player_reconnected(game_id, player_id)
                         websocket.player_id = player_id
                         await websocket.send_json({
                             "type": "joined",
@@ -499,7 +584,9 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
     except Exception as e:
         logger.error(f"Unexpected error in websocket handler for game {game_id}: {e}")
     finally:
-        manager.disconnect(game_id, websocket)
+        player_id = manager.disconnect(game_id, websocket)
+        if player_id:
+            await mark_player_disconnected(game_id, player_id)
 
 
 @app.get("/health")

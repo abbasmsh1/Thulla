@@ -10,6 +10,7 @@ const App: React.FC = () => {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [playerName, setPlayerName] = useState('');
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [creatorToken, setCreatorToken] = useState<string | null>(null);
   const [gameState, setGameState] = useState<GameStateWithHand | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -67,6 +68,7 @@ const App: React.FC = () => {
     try {
       const result = await gameApi.createGame();
       setGameId(result.game_id);
+      setCreatorToken(result.creator_token);
       setView('create');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create game');
@@ -107,7 +109,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await gameApi.joinGame(gameId, playerName);
+      const result = await gameApi.joinGame(gameId, playerName, creatorToken ?? undefined);
       setPlayerId(result.player_id);
       setSessionToken(result.session_token);
       setView('lobby');
@@ -496,6 +498,8 @@ const App: React.FC = () => {
 
   // Lobby screen
   if (view === 'lobby') {
+    const playerCount = gameState?.connected_player_count ?? 1;
+    const isOwner = gameState ? gameState.owner_player_id === playerId : false;
     return (
       <div style={{
         display: 'flex',
@@ -592,16 +596,41 @@ const App: React.FC = () => {
               }} />
               {isConnected ? 'Connected to Server' : 'Reconnecting...'}
             </div>
+            <div style={{
+              marginTop: '12px',
+              fontSize: '0.95rem',
+              color: '#fef9e7',
+              fontFamily: 'Montserrat, sans-serif',
+              letterSpacing: '1px'
+            }}>
+              {playerCount} player{playerCount !== 1 ? 's' : ''} connected
+            </div>
           </div>
 
-          <button
-            className="glass-button"
-            onClick={handleStartGame}
-            disabled={isLoading}
-            style={{ width: '100%', marginTop: '10px' }}
-          >
-            {isLoading ? 'Shuffling...' : 'Deal Cards'}
-          </button>
+          {isOwner ? (
+            <button
+              className="glass-button"
+              onClick={handleStartGame}
+              disabled={isLoading}
+              style={{ width: '100%', marginTop: '10px' }}
+            >
+              {isLoading ? 'Shuffling...' : 'Deal Cards'}
+            </button>
+          ) : (
+            <div style={{
+              width: '100%',
+              marginTop: '10px',
+              padding: '16px 20px',
+              borderRadius: '14px',
+              background: 'rgba(0,0,0,0.28)',
+              border: '1px solid rgba(212, 175, 55, 0.18)',
+              color: 'rgba(254, 249, 231, 0.75)',
+              fontFamily: 'Montserrat, sans-serif',
+              fontSize: '0.95rem'
+            }}>
+              Only the game creator can start the match.
+            </div>
+          )}
 
           <p style={{
             color: 'rgba(254, 249, 231, 0.4)',
@@ -610,7 +639,7 @@ const App: React.FC = () => {
             letterSpacing: '1px',
             fontStyle: 'italic'
           }}>
-            Waiting for commander to initiate...
+            {isOwner ? 'Waiting for everyone to join before you deal.' : 'Waiting for the game creator to start the match.'}
           </p>
         </div>
 
