@@ -459,63 +459,65 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           </div>
         ) : (
           // Desktop layout: positioned opponents
-          opponents.map((opponent, index) => (
-            <div
-              key={opponent.id}
-              style={{
-                position: 'absolute',
-                ...(getOpponentPosition(index) === 'left' && {
-                  left: '40px',
-                  top: '50%',
-                  transform: 'translateY(-50%)'
-                }),
-                ...(getOpponentPosition(index) === 'right' && {
-                  right: '40px',
-                  top: '50%',
-                  transform: 'translateY(-50%)'
-                }),
-                ...(getOpponentPosition(index) === 'top' && {
-                  top: '100px',
-                  left: '50%',
-                  transform: 'translateX(-50%)'
-                })
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                <PlayerAvatar
-                  name={opponent.name}
-                  isCurrentPlayer={opponent.id === current_player_id}
-                  size={64}
-                />
-                <div style={{ textAlign: 'center' }}>
+          <>
+            {opponents.map((opponent, index) => (
+              <div
+                key={opponent.id}
+                style={{
+                  position: 'absolute',
+                  ...(getOpponentPosition(index) === 'left' && {
+                    left: '40px',
+                    top: '50%',
+                    transform: 'translateY(-50%)'
+                  }),
+                  ...(getOpponentPosition(index) === 'right' && {
+                    right: '40px',
+                    top: '50%',
+                    transform: 'translateY(-50%)'
+                  }),
+                  ...(getOpponentPosition(index) === 'top' && {
+                    top: '100px',
+                    left: '50%',
+                    transform: 'translateX(-50%)'
+                  })
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                  <PlayerAvatar
+                    name={opponent.name}
+                    isCurrentPlayer={opponent.id === current_player_id}
+                    size={64}
+                  />
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{
+                      color: '#fef9e7',
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    fontFamily: 'Cormorant Garamond, serif',
+                    textShadow: '0 2px 4px rgba(0,0,0,0.8)'
+                  }}>
+                    {opponent.name}
+                    {opponent.id === current_player_id && (
+                      <span style={{ marginLeft: '8px', color: '#d4af37' }}>🎯</span>
+                    )}
+                  </div>
                   <div style={{
-                    color: '#fef9e7',
-                  fontSize: '15px',
-                  fontWeight: 600,
-                  fontFamily: 'Cormorant Garamond, serif',
-                  textShadow: '0 2px 4px rgba(0,0,0,0.8)'
-                }}>
-                  {opponent.name}
-                  {opponent.id === current_player_id && (
-                    <span style={{ marginLeft: '8px', color: '#d4af37' }}>🎯</span>
-                  )}
-                </div>
-                <div style={{
-                  backgroundColor: 'rgba(212, 175, 55, 0.15)',
-                  padding: '5px 14px',
-                  borderRadius: '15px',
-                  marginTop: '6px',
-                  fontSize: '12px',
-                  color: '#d4af37',
-                  border: '1px solid rgba(212, 175, 55, 0.3)',
-                  fontFamily: 'Montserrat, sans-serif',
-                  fontWeight: 500
-                }}>
-                  {opponent.card_count} cards
+                    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+                    padding: '5px 14px',
+                    borderRadius: '15px',
+                    marginTop: '6px',
+                    fontSize: '12px',
+                    color: '#d4af37',
+                    border: '1px solid rgba(212, 175, 55, 0.3)',
+                    fontFamily: 'Montserrat, sans-serif',
+                    fontWeight: 500
+                  }}>
+                    {opponent.card_count} cards
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            ))}
+          </>
         )}
 
         {/* ── Pile Passed Banner ── */}
